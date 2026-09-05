@@ -1,0 +1,13 @@
+langgraph
+langchain-groq
+python-dotenv
+edge-tts
+requests
+moviepy>=2.0
+faster-whisper
+ffmpeg-normalize
+google-auth
+google-auth-oauthlib
+google-api-python-client
+
+//C:\Users\rs224\OneDrive\Desktop\ai_trial\myenv\Scripts\Activate.ps1

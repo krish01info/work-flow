@@ -1,0 +1,67 @@
+# Place this file at: .github/workflows/generate-video.yml
+name: Generate & Upload Short Video
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'   # every 4 hours, at minute 0 (6 uploads/day)
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
+
+concurrency:
+  group: video-pipeline
+  cancel-in-progress: false   # don't kill a run that's mid-upload if another gets queued
+
+jobs:
+  generate-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45        # kill runaway jobs so you don't burn minutes on a hang
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Confirm ffmpeg (preinstalled on ubuntu-latest)
+        run: ffmpeg -version
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache faster-whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-tiny-model-${{ runner.os }}
+
+      - name: Confirm font asset is present
+        run: |
+          if [ ! -f "assets/Roboto-Bold.ttf" ]; then
+            echo "::warning::assets/Roboto-Bold.ttf not found — captions will fall back to default font"
+          fi
+
+      - name: Run video pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
+        run: python main.py
+
+      # Runs even if the pipeline step above fails, so you can debug
+      - name: Upload final video as workflow artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-video-${{ github.run_id }}
+          path: |
+            output_final_video/
+            output_audio/
+          retention-days: 7
+          if-no-files-found: ignore
