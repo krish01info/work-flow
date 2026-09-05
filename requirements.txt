@@ -10,4 +10,4 @@ google-auth
 google-auth-oauthlib
 google-api-python-client
 
-//C:\Users\rs224\OneDrive\Desktop\ai_trial\myenv\Scripts\Activate.ps1
+
