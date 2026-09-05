@@ -1,0 +1,9 @@
+output_audio/
+output_raw_video/
+output_final_video/
+stock_clips/
+__pycache__/
+*.pyc
+.env
+requirement.txt
+
