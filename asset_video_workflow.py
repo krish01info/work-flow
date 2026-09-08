@@ -76,9 +76,8 @@ VIDEO_BITRATE       = "8000k"
 VIDEO_PRESET        = "slow"
 VIDEO_FFMPEG_PARAMS = ["-crf", "18", "-movflags", "+faststart"]
 
-ITUNES_RSS_URL = (
-    "https://rss.applemarketingtools.com/api/v2/us/music/most-played/10/songs.json"
-)
+# YouTube Audio Library — copyright-free music for YouTube creators
+YT_AUDIO_LIBRARY_CHANNEL = "https://www.youtube.com/@YouTubeAudioLibrary"
 
 REQUIRED_ENV_VARS = [
     "GOOGLE_CLIENT_ID",
@@ -92,16 +91,17 @@ REQUIRED_ENV_VARS = [
 # State
 # ---------------------------------------------------------------------------
 class VideoState(TypedDict):
-    trending_song_title:  str
-    trending_song_artist: str
-    music_path:           str
-    music_attribution:    str
-    caption_words:        list   # timed word list from whisper
-    final_video_path:     str
-    youtube_url:          str
-    drive_url:            str
-    drive_file_id:        str
-    instagram_url:        str
+    trending_song_title:      str
+    trending_song_artist:     str
+    audio_library_video_id:   str   # YouTube Audio Library video ID
+    music_path:               str
+    music_attribution:        str
+    caption_words:            list  # timed word list from whisper
+    final_video_path:         str
+    youtube_url:              str
+    drive_url:                str
+    drive_file_id:            str
+    instagram_url:            str
 
 
 # ---------------------------------------------------------------------------
@@ -224,34 +224,76 @@ def _loop_audio(clip: AudioFileClip, duration: float) -> AudioFileClip:
 # Node 1 — fetch_trending_song (iTunes Top-10, skip already-used)
 # ---------------------------------------------------------------------------
 def fetch_trending_song(state: VideoState) -> VideoState:
-    print("[fetch_trending_song] querying iTunes RSS ...")
+    """Pick a random copyright-free track from YouTube Audio Library.
+
+    YouTube Audio Library tracks are explicitly licensed for reuse on
+    YouTube — no Content ID claims, no copyright strikes.
+    """
+    print("[fetch_trending_song] fetching YouTube Audio Library tracks ...")
     used = _load_used_songs()
-    title, artist = "", ""
+    entries = []
 
-    try:
-        resp = requests.get(ITUNES_RSS_URL, timeout=10)
-        resp.raise_for_status()
-        results = resp.json()["feed"]["results"]
-
-        for entry in results:
-            t = entry.get("name", "")
-            a = entry.get("artistName", "")
-            if f"{t}|{a}" not in used:
-                title, artist = t, a
-                print(f"[fetch_trending_song] picked: {t!r} by {a}")
+    # ── Primary: pull track list directly from the Audio Library channel ──
+    for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
+        try:
+            result = subprocess.run(
+                cmd_prefix + [
+                    YT_AUDIO_LIBRARY_CHANNEL,
+                    "--flat-playlist",
+                    "--print", "%(id)s|||%(title)s",
+                    "--playlist-items", "1-80",
+                    "--no-warnings", "--quiet",
+                ],
+                capture_output=True, text=True, timeout=45,
+            )
+            for line in result.stdout.strip().splitlines():
+                if "|||" in line:
+                    vid_id, title = line.split("|||", 1)
+                    entries.append({"id": vid_id.strip(), "title": title.strip()})
+            if entries:
                 break
-        else:
-            print("[fetch_trending_song] all top-10 used — resetting tracker")
-            USED_SONGS_DB.write_text("[]", encoding="utf-8")
-            title  = results[0].get("name", "")
-            artist = results[0].get("artistName", "")
+        except Exception as exc:
+            print(f"[fetch_trending_song] channel fetch attempt failed: {exc}")
 
-    except Exception as exc:
-        print(f"[fetch_trending_song] failed ({exc}), using fallback")
-        title, artist = "Blinding Lights", "The Weeknd"
+    # ── Fallback: search YouTube for Audio Library music ──
+    if not entries:
+        print("[fetch_trending_song] falling back to search ...")
+        for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
+            try:
+                result = subprocess.run(
+                    cmd_prefix + [
+                        "ytsearch30:youtube audio library no copyright background music",
+                        "--flat-playlist",
+                        "--print", "%(id)s|||%(title)s",
+                        "--no-warnings", "--quiet",
+                    ],
+                    capture_output=True, text=True, timeout=45,
+                )
+                for line in result.stdout.strip().splitlines():
+                    if "|||" in line:
+                        vid_id, title = line.split("|||", 1)
+                        entries.append({"id": vid_id.strip(), "title": title.strip()})
+                if entries:
+                    break
+            except Exception as exc:
+                print(f"[fetch_trending_song] search fallback failed: {exc}")
 
-    state["trending_song_title"]  = title
-    state["trending_song_artist"] = artist
+    random.shuffle(entries)
+    chosen = None
+    for entry in entries:
+        if entry["id"] not in used:
+            chosen = entry
+            break
+
+    if not chosen:
+        print("[fetch_trending_song] all tracks used — resetting tracker")
+        USED_SONGS_DB.write_text("[]", encoding="utf-8")
+        chosen = entries[0] if entries else {"id": "", "title": "No Copyright Music"}
+
+    state["trending_song_title"]    = chosen["title"]
+    state["trending_song_artist"]   = "YouTube Audio Library"
+    state["audio_library_video_id"] = chosen["id"]
+    print(f"[fetch_trending_song] picked: {chosen['title']!r} (id={chosen['id']})")
     return state
 
 
@@ -259,6 +301,11 @@ def fetch_trending_song(state: VideoState) -> VideoState:
 # Node 2 — download_trending_music (yt-dlp + chorus extraction)
 # ---------------------------------------------------------------------------
 def download_trending_music(state: VideoState) -> VideoState:
+    """Download the Audio Library track selected by fetch_trending_song.
+
+    Downloads by direct video ID (not keyword search) so we always get
+    the exact copyright-free track chosen from the Audio Library channel.
+    """
     AUDIO_DIR.mkdir(exist_ok=True)
     raw_mp3    = AUDIO_DIR / "asset_trending_music_full.mp3"
     chorus_mp3 = AUDIO_DIR / "asset_trending_music.mp3"
@@ -266,12 +313,19 @@ def download_trending_music(state: VideoState) -> VideoState:
     for old in AUDIO_DIR.glob("asset_trending_music*.*"):
         old.unlink(missing_ok=True)
 
-    query = f"{state['trending_song_title']} {state['trending_song_artist']} official audio"
-    print(f"[download_trending_music] searching: {query!r}")
+    video_id = state.get("audio_library_video_id", "")
+    if not video_id:
+        print("[download_trending_music] no audio library video_id — skipping music")
+        state["music_path"]        = ""
+        state["music_attribution"] = ""
+        return state
 
+    video_url     = f"https://www.youtube.com/watch?v={video_id}"
     dest_template = AUDIO_DIR / "asset_trending_music_full.%(ext)s"
+    print(f"[download_trending_music] downloading Audio Library track: {video_url}")
+
     base_args = [
-        f"ytsearch1:{query}",
+        video_url,
         "--extract-audio",
         "--audio-format", "mp3",
         "--audio-quality", "0",
@@ -302,19 +356,18 @@ def download_trending_music(state: VideoState) -> VideoState:
             break
 
     if downloaded and raw_mp3.exists():
-        # Extract up to 60s of chorus — video will extend to match if needed
         full_song_dur = AudioFileClip(str(raw_mp3)).duration
-        music_dur = min(full_song_dur, 60.0)
-
+        music_dur     = min(full_song_dur, 60.0)
         print(f"[download_trending_music] extracting {music_dur:.1f}s chorus ...")
         _extract_chorus(raw_mp3, chorus_mp3, music_dur)
 
         state["music_path"]        = str(chorus_mp3)
         state["music_attribution"] = (
-            f"Trending Song: '{state['trending_song_title']}' "
-            f"by {state['trending_song_artist']}"
+            f"Music: {state['trending_song_title']} "
+            f"(YouTube Audio Library — free to use)"
         )
-        _save_used_song(state["trending_song_title"], state["trending_song_artist"])
+        # Track by video_id so the same track isn't picked again
+        _save_used_song(video_id, "YouTube Audio Library")
         print(f"[download_trending_music] chorus saved -> {chorus_mp3}")
     else:
         print("[download_trending_music] download failed — no music")
@@ -770,16 +823,17 @@ workflow = graph.compile()
 if __name__ == "__main__":
     validate_prerequisites()
     result = workflow.invoke({
-        "trending_song_title":  "",
-        "trending_song_artist": "",
-        "music_path":           "",
-        "music_attribution":    "",
-        "caption_words":        [],
-        "final_video_path":     "",
-        "youtube_url":          "",
-        "drive_url":            "",
-        "drive_file_id":        "",
-        "instagram_url":        "",
+        "trending_song_title":    "",
+        "trending_song_artist":   "",
+        "audio_library_video_id": "",
+        "music_path":             "",
+        "music_attribution":      "",
+        "caption_words":          [],
+        "final_video_path":       "",
+        "youtube_url":            "",
+        "drive_url":              "",
+        "drive_file_id":          "",
+        "instagram_url":          "",
     })
     print("\n--- DONE ---")
     for key in ("trending_song_title", "trending_song_artist",
