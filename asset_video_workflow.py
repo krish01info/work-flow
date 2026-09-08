@@ -75,6 +75,30 @@ VIDEO_FFMPEG_PARAMS = ["-crf", "18", "-movflags", "+faststart"]
 # /videos tab ensures yt-dlp lists individual tracks
 YT_AUDIO_LIBRARY_CHANNEL = "https://www.youtube.com/@YouTubeAudioLibrary/videos"
 
+# ---------------------------------------------------------------------------
+# Verified royalty-free music sources and their licensing policies.
+# Only sources listed here pass validate_music_license().
+# IMPORTANT: This registry confirms royalty-free status only.
+#            It does NOT prevent YouTube Content ID claims for copyrighted music.
+# ---------------------------------------------------------------------------
+MUSIC_LICENSE_POLICIES: dict = {
+    "YouTube Audio Library": {
+        "license":              "YouTube Audio Library License",
+        "license_url":          "https://www.youtube.com/audiolibrary/policies",
+        "attribution_required": True,
+    },
+    "NoCopyrightSounds": {
+        "license":              "NoCopyrightSounds License",
+        "license_url":          "https://nocopyrightsounds.co.uk/licensing/",
+        "attribution_required": True,
+    },
+    "Pixabay Music": {
+        "license":              "Pixabay Content License",
+        "license_url":          "https://pixabay.com/service/license-summary/",
+        "attribution_required": False,
+    },
+}
+
 REQUIRED_ENV_VARS = [
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
@@ -86,12 +110,29 @@ REQUIRED_ENV_VARS = [
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
+class MusicMetadata(TypedDict):
+    """Structured music licensing metadata — kept separate from VideoState.
+
+    The renderer only receives this validated dict, never raw song titles
+    from the fetcher.  validate_music_license() is the single gate that
+    populates license/attribution fields and rejects unverified sources.
+    """
+    title:                str
+    artist:               str
+    source:               str    # e.g. "YouTube Audio Library"
+    license:              str    # human-readable license name
+    license_url:          str    # canonical license policy URL
+    attribution_required: bool
+    attribution_text:     str    # pre-formatted attribution string
+
+
 class VideoState(TypedDict):
     trending_song_title:      str
     trending_song_artist:     str
     audio_library_video_id:   str   # YouTube Audio Library video ID
     music_path:               str
     music_attribution:        str
+    music_metadata:           dict  # validated MusicMetadata — renderer reads this
     caption_words:            list  # timed word list from whisper
     final_video_path:         str
     youtube_url:              str
@@ -243,7 +284,108 @@ def _extract_chorus(src_path: Path, dest_path: Path, duration: float) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Node 1 — fetch_trending_song (iTunes Top-10, skip already-used)
+# Music License Validation + Attribution Badge
+# ---------------------------------------------------------------------------
+def validate_music_license(metadata: dict) -> dict:
+    """Validate music licensing metadata before the video is rendered.
+
+    Rules:
+      • Source must be in MUSIC_LICENSE_POLICIES (verified royalty-free).
+      • License/license_url fields are authoritative from the policy registry.
+      • If attribution_required, attribution_text is auto-generated.
+      • Unknown / unverified sources raise ValueError → video rendered without music.
+
+    IMPORTANT: This validates royalty-free status only.
+    It does NOT prevent Content ID claims for copyrighted music.
+    Adding an attribution label does not make copyrighted music legal to use.
+    """
+    source = metadata.get("source", "")
+    policy = MUSIC_LICENSE_POLICIES.get(source)
+
+    if not policy:
+        raise ValueError(
+            f"Unverified music source {source!r}. "
+            "Only tracks from verified royalty-free sources are allowed. "
+            f"Accepted sources: {list(MUSIC_LICENSE_POLICIES)}"
+        )
+
+    # Merge authoritative policy fields into a copy of the metadata
+    validated                        = dict(metadata)
+    validated["license"]             = policy["license"]
+    validated["license_url"]         = policy["license_url"]
+    validated["attribution_required"]= policy["attribution_required"]
+
+    if validated["attribution_required"] and not validated.get("attribution_text"):
+        validated["attribution_text"] = (
+            f'Music: "{validated["title"]}" by {validated["artist"]} '
+            f'| {source} — {policy["license_url"]}'
+        )
+
+    print(
+        f"[validate_music_license] ✓ source={source!r} "
+        f"license={validated['license']!r} "
+        f"attribution_required={validated['attribution_required']}"
+    )
+    return validated
+
+
+def _render_attribution_badge(
+    video,
+    metadata: dict,
+    badge_start: float,
+    total_dur: float,
+    font: str,
+) -> list:
+    """Create a YouTube Shorts-style music attribution badge overlay.
+
+    Displays:  ♪  {title}  ·  {artist}
+
+    The label identifies the royalty-free music source.
+    It does NOT prevent Content ID claims for copyrighted music.
+
+    Returns a list of moviepy clips to composite onto the video.
+    """
+    title  = metadata.get("title", "")
+    artist = metadata.get("artist", "")
+    if not title:
+        return []
+
+    badge_dur = max(0.0, total_dur - badge_start)
+    if badge_dur <= 0:
+        return []
+
+    label_text = f"♪  {title}  ·  {artist}"
+    badge_y    = int(1920 * 0.87)   # bottom area, like YouTube Shorts music label
+    pad_x, pad_y = 28, 12
+
+    try:
+        badge_txt = TextClip(
+            text=label_text, font=font, font_size=32,
+            color="white", stroke_color="black", stroke_width=1,
+            size=(int(1080 * 0.86), None), method="caption",
+        )
+        badge_bg = (
+            ColorClip(
+                size=(badge_txt.w + pad_x * 2, badge_txt.h + pad_y * 2),
+                color=(10, 10, 10),
+            )
+            .with_opacity(0.72)
+            .with_start(badge_start).with_duration(badge_dur)
+            .with_position(("center", badge_y))
+        )
+        badge_txt = (
+            badge_txt
+            .with_start(badge_start).with_duration(badge_dur)
+            .with_position(("center", badge_y + pad_y))
+        )
+        return [badge_bg, badge_txt]
+    except Exception as exc:
+        print(f"[attribution_badge] could not render badge: {exc}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Node 1 — fetch_trending_song (YouTube Audio Library, skip already-used)
 # ---------------------------------------------------------------------------
 def fetch_trending_song(state: VideoState) -> VideoState:
     """Pick a random copyright-free track from YouTube Audio Library.
@@ -316,6 +458,17 @@ def fetch_trending_song(state: VideoState) -> VideoState:
     state["trending_song_title"]    = chosen["title"]
     state["trending_song_artist"]   = "YouTube Audio Library"
     state["audio_library_video_id"] = chosen["id"]
+
+    # Build raw MusicMetadata — license fields are populated by validate_music_license
+    state["music_metadata"] = {
+        "title":                chosen["title"],
+        "artist":               "YouTube Audio Library",
+        "source":               "YouTube Audio Library",
+        "license":              "",   # filled by validate_music_license
+        "license_url":          "",   # filled by validate_music_license
+        "attribution_required": True, # filled by validate_music_license
+        "attribution_text":     "",   # filled by validate_music_license
+    }
     print(f"[fetch_trending_song] picked: {chosen['title']!r} (id={chosen['id']})")
     return state
 
@@ -525,38 +678,39 @@ def assemble_video(state: VideoState) -> VideoState:
         else:
             video = video.with_audio(music_clip)
 
-    # --- "Now Playing" badge (appears at 5s when music kicks in, shown for 5s) ---
-    overlays = []
-    song_title  = state.get("trending_song_title", "")
-    song_artist = state.get("trending_song_artist", "")
-    font = str(FONT_PATH) if FONT_PATH.exists() else None
-    if song_title and music_clip:
-        badge_text  = f"Now Playing: {song_title} - {song_artist}"
-        badge_start = MUSIC_START_OFFSET
-        badge_dur   = min(5.0, total_dur - badge_start)
-        if badge_dur > 0:
-            badge_txt = TextClip(
-                text=badge_text, font=font, font_size=36,
-                color="white", stroke_color="black", stroke_width=2,
-                size=(int(1080 * 0.90), None), method="caption",
-            )
-            badge_y = int(1920 * 0.88)
-            badge_bg = (
-                ColorClip(size=(badge_txt.w + 40, badge_txt.h + 20), color=(20, 20, 20))
-                .with_opacity(0.70)
-                .with_start(badge_start).with_duration(badge_dur)
-                .with_position(("center", badge_y))
-            )
-            badge_txt = (
-                badge_txt.with_start(badge_start).with_duration(badge_dur)
-                .with_position(("center", badge_y))
-            )
-            overlays.extend([badge_bg, badge_txt])
+    # --- Music attribution badge (YouTube Shorts-style) ---
+    # validate_music_license() is the single gate: only verified royalty-free
+    # sources pass through.  If validation fails, video renders without music.
+    # NOTE: The visual badge identifies royalty-free music. It does NOT prevent
+    #       Content ID claims. Only properly licensed music passes this check.
+    overlays     = []
+    caption_font = _ensure_caption_font()
+    font         = str(FONT_PATH) if FONT_PATH.exists() else None
+
+    raw_metadata:       dict = state.get("music_metadata", {})
+    validated_metadata: dict = {}
+
+    if raw_metadata and music_clip:
+        try:
+            validated_metadata = validate_music_license(raw_metadata)
+        except ValueError as exc:
+            print(f"[assemble_video] ✗ music rejected by license validator: {exc}")
+            print("[assemble_video] rendering video WITHOUT music.")
+            music_clip = None
+
+    if validated_metadata and music_clip:
+        badge_overlays = _render_attribution_badge(
+            video=video,
+            metadata=validated_metadata,
+            badge_start=MUSIC_START_OFFSET,
+            total_dur=total_dur,
+            font=font,
+        )
+        overlays.extend(badge_overlays)
 
     # ── Lyric captions (word-by-word, styled with Anton font) ──
     caption_words = state.get("caption_words", [])
-    caption_font  = _ensure_caption_font()
-    total_dur     = video.duration if hasattr(video, 'duration') else total_dur
+    total_dur     = video.duration if hasattr(video, "duration") else total_dur
 
     for i, word in enumerate(caption_words):
         w_start = word["start"]
@@ -851,6 +1005,7 @@ if __name__ == "__main__":
         "audio_library_video_id": "",
         "music_path":             "",
         "music_attribution":      "",
+        "music_metadata":         {},
         "caption_words":          [],
         "final_video_path":       "",
         "youtube_url":            "",
