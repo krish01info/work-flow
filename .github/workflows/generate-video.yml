@@ -35,6 +35,14 @@ jobs:
           sudo apt-get install -y -qq ffmpeg
           ffmpeg -version | head -1
 
+      - name: Install Deno (JS runtime for yt-dlp)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Upgrade yt-dlp to latest
+        run: pip install --upgrade yt-dlp
+
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
