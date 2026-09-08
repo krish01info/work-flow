@@ -699,14 +699,10 @@ def assemble_video(state: VideoState) -> VideoState:
             music_clip = None
 
     if validated_metadata and music_clip:
-        badge_overlays = _render_attribution_badge(
-            video=video,
-            metadata=validated_metadata,
-            badge_start=MUSIC_START_OFFSET,
-            total_dur=total_dur,
-            font=font,
-        )
-        overlays.extend(badge_overlays)
+        # No visual badge burned into video pixels.
+        # Instagram's native ♫ audio tag is applied via audio_name in upload_to_instagram.
+        # Save the validated metadata back to state so the upload node can read it.
+        state["music_metadata"] = validated_metadata
 
     # ── Lyric captions (word-by-word, styled with Anton font) ──
     caption_words = state.get("caption_words", [])
@@ -899,19 +895,37 @@ def upload_to_instagram(state: VideoState) -> VideoState:
     ]
     caption = random.choice(ig_captions)
 
+    # Read validated music metadata built by fetch_trending_song + validate_music_license
+    music_meta  = state.get("music_metadata", {})
+    song_title  = music_meta.get("title", "")
+    song_artist = music_meta.get("artist", "")
+    audio_name  = f"{song_title} - {song_artist}" if song_title else ""
+
+    # Attribution fallback: always append track credit to caption text
+    if song_title:
+        caption += f"\n\nAudio: {song_title} · {song_artist}"
+
     # Google Drive high-speed CDN direct video stream URL
     video_url = f"https://drive.usercontent.google.com/download?id={drive_file_id}&export=download"
 
     print("[upload_to_instagram] initializing Reel container via Meta Graph API ...")
     try:
         init_url = f"https://graph.facebook.com/v20.0/{ig_account_id}/media"
-        init_res = requests.post(init_url, data={
-            "media_type": "REELS",
-            "video_url": video_url,
-            "caption": caption,
+
+        # Build upload payload
+        # audio_name → sets Instagram's native ♫ {audio_name} tag shown under profile name
+        ig_payload: dict = {
+            "media_type":    "REELS",
+            "video_url":     video_url,
+            "caption":       caption,
             "share_to_feed": True,
-            "access_token": ig_access_token,
-        }, timeout=30).json()
+            "access_token":  ig_access_token,
+        }
+        if audio_name:
+            ig_payload["audio_name"] = audio_name
+            print(f"[upload_to_instagram] audio_name → {audio_name!r}")
+
+        init_res = requests.post(init_url, data=ig_payload, timeout=30).json()
 
         if "id" not in init_res:
             print(f"[upload_to_instagram] container init failed: {init_res}")
