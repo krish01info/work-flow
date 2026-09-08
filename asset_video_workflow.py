@@ -23,10 +23,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import httplib2
-import librosa
-import numpy as np
 import requests
-import soundfile as sf
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -174,41 +171,74 @@ def _save_used_song(title: str, artist: str) -> None:
 # Chorus extraction (highest-energy segment via librosa RMS)
 # ---------------------------------------------------------------------------
 def _extract_chorus(src_path: Path, dest_path: Path, duration: float) -> None:
+    """Extract the best chorus segment using FFmpeg only (no librosa required).
+
+    Strategy: probe total duration, sample loudness at N points via
+    ffmpeg volumedetect, then cut from the loudest window.
+    Falls back to the 30%-mark of the song (typical first-chorus position)
+    if probing fails.
+    """
     try:
-        y, sr = librosa.load(str(src_path), sr=None, mono=True)
-        frame_length = int(sr * 0.5)
-        hop_length   = frame_length // 2
-        rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
-
-        frames_needed = max(1, int(duration / (hop_length / sr)))
-
-        if len(rms) <= frames_needed:
-            best_start_frame = 0
-        else:
-            cumsum = np.cumsum(np.concatenate(([0], rms)))
-            window_sums = cumsum[frames_needed:] - cumsum[:-frames_needed]
-            best_start_frame = int(np.argmax(window_sums))
-
-        start_sample = best_start_frame * hop_length
-        end_sample   = min(start_sample + int(duration * sr), len(y))
-        chorus_y     = y[start_sample:end_sample]
-
-        start_sec = start_sample / sr
-        print(f"[chorus] peak-energy at {start_sec:.1f}s ({len(chorus_y)/sr:.1f}s extracted)")
-
-        # WAV -> ffmpeg -> MP3 (works on both Windows and Ubuntu)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_wav = tmp.name
-        sf.write(tmp_wav, chorus_y, sr)
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", tmp_wav, "-b:a", "192k", str(dest_path)],
-            check=True, capture_output=True,
+        # Get total duration via ffprobe
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error",
+             "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1",
+             str(src_path)],
+            capture_output=True, text=True, check=True, timeout=15,
         )
-        os.unlink(tmp_wav)
+        total_dur = float(probe.stdout.strip())
+
+        # Sample loudness at ~8 evenly-spaced windows to find the peak-energy segment
+        step        = max(5.0, (total_dur - duration) / 8)
+        best_start  = max(0.0, total_dur * 0.30 - duration / 2)  # default: 30% mark
+        best_vol    = float("-inf")
+        t           = 0.0
+
+        while t + duration <= total_dur:
+            res = subprocess.run(
+                ["ffmpeg", "-y", "-ss", str(t), "-t", str(min(duration, 15.0)),
+                 "-i", str(src_path), "-af", "volumedetect",
+                 "-f", "null", "/dev/null"],
+                capture_output=True, text=True, timeout=30,
+            )
+            for line in res.stderr.splitlines():
+                if "mean_volume" in line:
+                    try:
+                        vol = float(line.split("mean_volume:")[1].split("dB")[0].strip())
+                        if vol > best_vol:
+                            best_vol   = vol
+                            best_start = t
+                    except ValueError:
+                        pass
+            t += step
+
+        print(f"[chorus] loudest window at {best_start:.1f}s "
+              f"(mean {best_vol:.1f} dB) — extracting {duration:.1f}s")
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-ss", str(best_start), "-t", str(duration),
+             "-i", str(src_path),
+             "-b:a", "192k", str(dest_path)],
+            check=True, capture_output=True, timeout=60,
+        )
     except Exception as exc:
-        print(f"[chorus] failed ({exc}), using first {duration:.0f}s instead")
-        clip = AudioFileClip(str(src_path))
-        clip.subclipped(0, min(duration, clip.duration)).write_audiofile(str(dest_path))
+        print(f"[chorus] ffmpeg scan failed ({exc}), using 30%-mark fallback")
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(src_path)],
+                capture_output=True, text=True, timeout=15,
+            )
+            total_dur  = float(probe.stdout.strip()) if probe.returncode == 0 else duration * 3
+            start      = max(0.0, min(total_dur * 0.30, total_dur - duration))
+        except Exception:
+            start = 0.0
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(start), "-t", str(duration),
+             "-i", str(src_path), "-b:a", "192k", str(dest_path)],
+            check=True, capture_output=True, timeout=60,
+        )
 
 
 def _loop_audio(clip: AudioFileClip, duration: float) -> AudioFileClip:

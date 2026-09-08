@@ -1,13 +1,10 @@
 langgraph
-langchain-groq
 python-dotenv
-edge-tts
 requests
 moviepy>=2.0
 faster-whisper
-ffmpeg-normalize
 google-auth
 google-auth-oauthlib
 google-api-python-client
-
-
+yt-dlp
+numpy
