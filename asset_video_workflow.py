@@ -651,7 +651,8 @@ def download_trending_music(state: VideoState) -> VideoState:
         "--retries", "3",
         "--fragment-retries", "3",
         "--socket-timeout", "30",
-        "--js-runtimes", "deno",   # use the deno runtime installed in CI
+        "--js-runtimes", "deno",        # use the deno runtime installed in CI
+        "--remote-components", "ejs:github",  # download JS challenge solver from GitHub
     ] + _ytdlp_cookie_args()
 
     last_error = None
