@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import pathlib
+from contextlib import ExitStack
 from pathlib import Path
 from typing import TypedDict
 
@@ -275,7 +276,7 @@ def _extract_chorus(src_path: Path, dest_path: Path, duration: float) -> None:
             res = subprocess.run(
                 ["ffmpeg", "-y", "-ss", str(t), "-t", str(min(duration, 15.0)),
                  "-i", str(src_path), "-af", "volumedetect",
-                 "-f", "null", "/dev/null"],
+                 "-f", "null", "-"],
                 capture_output=True, text=True, timeout=30,
             )
             for line in res.stderr.splitlines():
@@ -365,28 +366,54 @@ def validate_music_license(metadata: dict) -> dict:
     return validated
 
 
+def _probe_media(path: Path) -> dict:
+    if not path.is_file() or path.stat().st_size == 0:
+        raise RuntimeError(f"Missing or empty media file: {path}")
+
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration:stream=codec_type",
+            "-of", "json",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    info = json.loads(result.stdout)
+    duration = float(info.get("format", {}).get("duration", 0))
+    if not 0 < duration < float("inf"):
+        raise RuntimeError(f"Invalid media duration: {path}")
+
+    return {
+        "duration": duration,
+        "stream_types": {
+            stream.get("codec_type")
+            for stream in info.get("streams", [])
+        },
+    }
+
+
 def prepare_music_for_render(state: VideoState) -> dict:
-    """Validate music before it can be attached to the rendered video.
+    metadata = state.get("music_metadata")
+    if not metadata:
+        raise RuntimeError("Music metadata is missing. Upload aborted.")
 
-    An invalid source clears the audio path and metadata so later rendering
-    and publishing nodes cannot use rejected music.
-    """
-    raw_metadata = state.get("music_metadata", {})
-    if not raw_metadata:
-        return {}
+    validated = validate_music_license(metadata)
 
-    try:
-        validated_metadata = validate_music_license(raw_metadata)
-    except ValueError as exc:
-        print(f"[assemble_video] music rejected by license validator: {exc}")
-        state["music_path"] = ""
-        state["music_attribution"] = ""
-        state["music_metadata"] = {}
-        state["caption_words"] = []
-        return {}
+    music_path = state.get("music_path")
+    if not music_path:
+        raise RuntimeError("Music download is missing. Upload aborted.")
 
-    state["music_metadata"] = validated_metadata
-    return validated_metadata
+    info = _probe_media(Path(music_path))
+    if "audio" not in info["stream_types"]:
+        raise RuntimeError("Downloaded music has no audio stream.")
+
+    state["music_metadata"] = validated
+    state["music_attribution"] = validated.get("attribution_text", "")
+    return validated
 
 
 def _render_attribution_badge(
@@ -602,88 +629,82 @@ def fetch_trending_song(state: VideoState) -> VideoState:
 # Node 2 — download_trending_music (yt-dlp + chorus extraction)
 # ---------------------------------------------------------------------------
 def download_trending_music(state: VideoState) -> VideoState:
-    """Download the Audio Library track selected by fetch_trending_song.
-
-    Downloads by direct video ID (not keyword search) so we always get
-    the exact copyright-free track chosen from the Audio Library channel.
-    """
-    AUDIO_DIR.mkdir(exist_ok=True)
-    raw_mp3    = AUDIO_DIR / "asset_trending_music_full.mp3"
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    raw_mp3 = AUDIO_DIR / "asset_trending_music_full.mp3"
     chorus_mp3 = AUDIO_DIR / "asset_trending_music.mp3"
 
-    for old in AUDIO_DIR.glob("asset_trending_music*.*"):
-        old.unlink(missing_ok=True)
+    state["music_path"] = ""
+    state["music_attribution"] = ""
 
     video_id = state.get("audio_library_video_id", "")
     if not video_id:
-        print("[download_trending_music] no audio library video_id — skipping music")
-        state["music_path"]        = ""
-        state["music_attribution"] = ""
-        return state
+        raise RuntimeError("No music video ID was selected.")
 
-    video_url     = f"https://www.youtube.com/watch?v={video_id}"
-    dest_template = AUDIO_DIR / "asset_trending_music_full.%(ext)s"
-    print(f"[download_trending_music] downloading Audio Library track: {video_url}")
-
-    base_args = [
-        video_url,
+    command = [
+        sys.executable, "-m", "yt_dlp",
+        f"https://www.youtube.com/watch?v={video_id}",
         "--extract-audio",
         "--audio-format", "mp3",
         "--audio-quality", "0",
-        "--output", str(dest_template),
+        "--output", str(AUDIO_DIR / "asset_trending_music_full.%(ext)s"),
         "--no-playlist",
-        "--no-warnings",
+        "--retries", "3",
+        "--fragment-retries", "3",
+        "--socket-timeout", "30",
     ] + _ytdlp_cookie_args()
 
-    downloaded = False
+    last_error = None
 
-    def _try(cmd_prefix) -> bool:
-        proc = subprocess.run(
-            cmd_prefix + base_args, capture_output=True, text=True, timeout=120,
-        )
-        if proc.returncode != 0:
-            _log_ytdlp_failure("download_trending_music", proc)
-            return False
-        return True
+    for attempt in range(1, 4):
+        # Never allow an earlier attempt's partial output to pass validation.
+        for old in AUDIO_DIR.glob("asset_trending_music*"):
+            if old.is_file():
+                old.unlink()
 
-    try:
-        downloaded = _try(["yt-dlp"])
-    except FileNotFoundError:
         try:
-            downloaded = _try([sys.executable, "-m", "yt_dlp"])
+            print(f"[download_trending_music] attempt {attempt}/3")
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
+            if result.returncode != 0:
+                _log_ytdlp_failure("download_trending_music", result)
+                raise RuntimeError(
+                    f"yt-dlp exited with code {result.returncode}"
+                )
+
+            # Require the actual postprocessed MP3, not a renamed .part file.
+            info = _probe_media(raw_mp3)
+            if "audio" not in info["stream_types"]:
+                raise RuntimeError("Downloaded file has no audio stream.")
+
+            _extract_chorus(
+                raw_mp3,
+                chorus_mp3,
+                min(info["duration"], 60.0),
+            )
+
+            chorus_info = _probe_media(chorus_mp3)
+            if "audio" not in chorus_info["stream_types"]:
+                raise RuntimeError("Extracted chorus has no audio stream.")
+
+            state["music_path"] = str(chorus_mp3)
+            prepare_music_for_render(state)
+            print(f"[download_trending_music] ready: {chorus_mp3}")
+            return state
+
         except Exception as exc:
-            print(f"[download_trending_music] error: {exc}")
-    except Exception as exc:
-        print(f"[download_trending_music] error: {exc}")
+            last_error = exc
+            print(f"[download_trending_music] attempt failed: {exc}")
+            if attempt < 3:
+                time.sleep(5 * attempt)
 
-    # Rename whatever yt-dlp produced
-    if not raw_mp3.exists():
-        for c in AUDIO_DIR.glob("asset_trending_music_full.*"):
-            c.rename(raw_mp3)
-            downloaded = True
-            break
-
-    if downloaded and raw_mp3.exists():
-        full_song_dur = AudioFileClip(str(raw_mp3)).duration
-        music_dur     = min(full_song_dur, 60.0)
-        print(f"[download_trending_music] extracting {music_dur:.1f}s chorus ...")
-        _extract_chorus(raw_mp3, chorus_mp3, music_dur)
-
-        state["music_path"]        = str(chorus_mp3)
-        state["music_attribution"] = (
-            f"Music: {state['trending_song_title']} "
-            f"by {state['trending_song_artist']} (royalty-free)"
-        )
-        # Save used track: key = "{video_id}|{source}" to match fetch dedup check
-        source = state.get("music_metadata", {}).get("source", "YouTube Audio Library")
-        _save_used_song(video_id, source)
-        print(f"[download_trending_music] chorus saved -> {chorus_mp3}")
-    else:
-        print("[download_trending_music] download failed — no music")
-        state["music_path"]        = ""
-        state["music_attribution"] = ""
-
-    return state
+    raise RuntimeError(
+        "Music download/extraction failed after three attempts. "
+        "No video will be uploaded. Inspect the yt-dlp errors above."
+    ) from last_error
 
 
 
@@ -691,42 +712,48 @@ def download_trending_music(state: VideoState) -> VideoState:
 # Node 3 — transcribe_music  (Whisper on the chorus audio -> timed lyrics)
 # ---------------------------------------------------------------------------
 def transcribe_music(state: VideoState) -> VideoState:
-    """Use faster-whisper to extract word-level timestamps from the chorus clip."""
-    music_path = state.get("music_path", "")
-    if not music_path or not pathlib.Path(music_path).exists():
-        print("[transcribe_music] no music file — skipping captions")
-        state["caption_words"] = []
-        return state
+    prepare_music_for_render(state)
+    state["caption_words"] = []
 
-    print("[transcribe_music] running Whisper on chorus audio ...")
-    try:
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-        # music=True suppresses non-speech noise, giving cleaner lyric transcription
-        segments, _ = model.transcribe(
-            music_path,
-            word_timestamps=True,
-            beam_size=5,
-            condition_on_previous_text=False,
-            vad_filter=True,
+    print("[transcribe_music] transcribing chorus...")
+    model = WhisperModel("small", device="cpu", compute_type="int8")
+
+    segments, _ = model.transcribe(
+        state["music_path"],
+        word_timestamps=True,
+        beam_size=5,
+        condition_on_previous_text=False,
+        vad_filter=False,
+    )
+
+    chorus_duration = _probe_media(Path(state["music_path"]))["duration"]
+    words = []
+
+    # segments is lazy: transcription errors can occur during iteration.
+    for segment in segments:
+        for word in segment.words or []:
+            text = word.word.strip()
+            start = max(0.0, float(word.start))
+            end = min(chorus_duration, float(word.end))
+
+            if text and start < end:
+                words.append({
+                    "text": text.upper(),
+                    "start": start + MUSIC_START_OFFSET,
+                    "end": end + MUSIC_START_OFFSET,
+                })
+
+    words.sort(key=lambda word: word["start"])
+
+    if not words:
+        raise RuntimeError(
+            "No lyric captions were detected. The selected track may be "
+            "instrumental. Upload aborted rather than publishing without "
+            "captions."
         )
-        words = []
-        for seg in segments:
-            if seg.words:
-                for w in seg.words:
-                    text = w.word.strip()
-                    if text:
-                        # Offset by MUSIC_START_OFFSET so timestamps match the video timeline
-                        words.append({
-                            "text":  text.upper(),
-                            "start": w.start + MUSIC_START_OFFSET,
-                            "end":   w.end   + MUSIC_START_OFFSET,
-                        })
-        print(f"[transcribe_music] {len(words)} words transcribed")
-        state["caption_words"] = words
-    except Exception as exc:
-        print(f"[transcribe_music] failed ({exc}) — no captions")
-        state["caption_words"] = []
 
+    state["caption_words"] = words
+    print(f"[transcribe_music] {len(words)} caption words ready")
     return state
 
 # ---------------------------------------------------------------------------
@@ -738,165 +765,218 @@ LOOP_SEGMENT_END   = 10.0  # seconds
 
 
 def _build_extended_video(asset_clip, total_duration: float):
-    """
-    Build a video track that is exactly total_duration seconds long:
-      - Plays the full asset clip once
-      - If total_duration > asset clip length, loops the 9.5s-10s segment
-        on repeat to fill the remainder
-    """
     from moviepy import concatenate_videoclips
 
-    asset_dur = asset_clip.duration
+    asset_duration = float(asset_clip.duration)
+    if asset_duration <= 0:
+        raise RuntimeError("Asset video has an invalid duration.")
 
-    if total_duration <= asset_dur:
-        # Song fits within asset — just trim
+    if total_duration <= asset_duration:
         return asset_clip.subclipped(0, total_duration)
 
-    # Asset plays in full, then the 9.5s-10s mini-loop fills the rest
-    loop_seg = asset_clip.subclipped(LOOP_SEGMENT_START,
-                                     min(LOOP_SEGMENT_END, asset_dur))
-    extra_needed = total_duration - asset_dur
-    print(
-        f"[assemble_video] song longer than asset by {extra_needed:.1f}s — "
-        f"looping {LOOP_SEGMENT_START}s-{LOOP_SEGMENT_END}s segment"
+    loop_end = min(LOOP_SEGMENT_END, asset_duration)
+    loop_start = min(
+        LOOP_SEGMENT_START,
+        max(0.0, loop_end - 0.5),
     )
+    loop_segment = asset_clip.subclipped(loop_start, loop_end)
 
-    loop_pieces = []
-    remaining = extra_needed
-    while remaining > 0:
-        piece = loop_seg.subclipped(0, min(loop_seg.duration, remaining))
-        loop_pieces.append(piece)
-        remaining -= piece.duration
+    if loop_segment.duration <= 0:
+        raise RuntimeError("Cannot create a valid asset loop.")
 
-    return concatenate_videoclips([asset_clip] + loop_pieces, method="compose")
+    pieces = [asset_clip]
+    remaining = total_duration - asset_duration
+
+    while remaining > 0.000001:
+        duration = min(loop_segment.duration, remaining)
+        pieces.append(loop_segment.subclipped(0, duration))
+        remaining -= duration
+
+    return concatenate_videoclips(
+        pieces, method="chain"
+    ).with_duration(total_duration)
 
 
 def assemble_video(state: VideoState) -> VideoState:
-    raw_asset = VideoFileClip(str(ASSET_VIDEO))
-    asset_dur = raw_asset.duration
-    print(f"[assemble_video] asset duration = {asset_dur:.1f}s")
+    state["final_video_path"] = ""
 
-    # Scale + crop to 1080x1920 vertical
-    scale     = max(1080 / raw_asset.w, 1920 / raw_asset.h)
-    raw_asset = raw_asset.resized(scale)
-    raw_asset = raw_asset.cropped(
-        x_center=raw_asset.w / 2, y_center=raw_asset.h / 2,
-        width=1080, height=1920,
-    )
+    # Mandatory checks: there is deliberately no raw-video fallback.
+    metadata = prepare_music_for_render(state)
+    words = state.get("caption_words", [])
+    if not words:
+        raise RuntimeError("Captions are missing. Upload aborted.")
 
-    # Validate music before opening it or attaching it to the video.
-    # Rejected music clears its path and metadata in the state.
-    validated_metadata = prepare_music_for_render(state)
+    FINAL_DIR.mkdir(parents=True, exist_ok=True)
+    destination = FINAL_DIR / "asset_final_video.mp4"
+    temporary = FINAL_DIR / "asset_final_video.rendering.mp4"
 
-    # --- Determine total video duration ---
-    music_clip = None
-    if validated_metadata and state.get("music_path") and Path(state["music_path"]).is_file():
-        music_clip = AudioFileClip(state["music_path"])
+    destination.unlink(missing_ok=True)
+    temporary.unlink(missing_ok=True)
 
-    # A track was *selected* in fetch_trending_song (which always succeeds,
-    # thanks to its hardcoded fallback list) but the download/validation step
-    # never produced a usable file. Previously this fell through silently and
-    # the "final" video was just the raw asset re-encoded — no music, no
-    # captions, no length change, with the job still reporting green.
-    # Fail loudly instead so the real yt-dlp error (printed above, in the
-    # download_trending_music logs) actually surfaces in the Actions run.
-    if state.get("trending_song_title") and not music_clip and not os.getenv("ALLOW_RAW_FALLBACK"):
-        raise RuntimeError(
-            "[assemble_video] Aborting: a track was selected "
-            f"({state.get('trending_song_title')!r} by "
-            f"{state.get('trending_song_artist')!r}) but no playable audio "
-            "was produced, so the output would just be the unedited raw "
-            "asset video. Check the 'download_trending_music' log lines "
-            "above for the actual yt-dlp error — on GitHub-hosted runners "
-            "this is almost always YouTube blocking the runner's IP. Add a "
-            "YOUTUBE_COOKIES secret (Netscape cookies.txt from a signed-in "
-            "browser) to authenticate yt-dlp and this should resolve it. "
-            "Set ALLOW_RAW_FALLBACK=1 to bypass this check and permit a "
-            "music-less upload."
-        )
-
-    # Total duration = 5s intro + chorus length; or just asset_dur if no music
-    chorus_dur   = music_clip.duration if music_clip else 0
-    total_dur    = MUSIC_START_OFFSET + chorus_dur if music_clip else asset_dur
-    print(f"[assemble_video] total video duration = {total_dur:.1f}s "
-          f"(asset={asset_dur:.1f}s, chorus={chorus_dur:.1f}s)")
-
-    # Build video track (extends with loop if needed)
-    video = _build_extended_video(raw_asset, total_dur)
-
-    # --- Audio: original video audio (plays ONCE only) + trending song from 5s ---
-    if music_clip:
-        music_clip = music_clip.with_effects([afx.MultiplyVolume(MUSIC_VOLUME)])
-        music_clip = music_clip.with_start(MUSIC_START_OFFSET)
-        original_audio = raw_asset.audio
-        if original_audio:
-            # Original audio plays only for the asset's natural duration — NOT looped.
-            # Beyond that point only the trending song is heard.
-            orig_once = original_audio.subclipped(0, min(original_audio.duration, asset_dur))
-            video = video.with_audio(CompositeAudioClip([orig_once, music_clip]))
-        else:
-            video = video.with_audio(music_clip)
-
-    # --- Music attribution ---
-    # License validation already completed before the music clip was opened.
-    # No visual badge is burned into the video; Instagram receives audio_name.
-    overlays = []
     caption_font = _ensure_caption_font()
 
-    # ── Lyric captions (word-by-word, styled with Anton font) ──
-    caption_words = state.get("caption_words", [])
-    total_dur     = video.duration if hasattr(video, "duration") else total_dur
+    with ExitStack() as resources:
+        asset = resources.enter_context(VideoFileClip(str(ASSET_VIDEO)))
+        music = resources.enter_context(AudioFileClip(state["music_path"]))
 
-    for i, word in enumerate(caption_words):
-        w_start = word["start"]
-        w_end   = word["end"]
-        # Smooth flow: hold word on screen until next word arrives (up to 1.5s max gap)
-        if i + 1 < len(caption_words):
-            next_start = caption_words[i + 1]["start"]
-            if next_start > w_start and (next_start - w_start) <= 1.5:
-                w_end = next_start
-        w_dur = max(w_end - w_start, 0.18)
-        if w_start >= total_dur:
-            continue
+        total_duration = MUSIC_START_OFFSET + music.duration
+        if MUSIC_START_OFFSET < 0 or music.duration <= 0:
+            raise RuntimeError("Invalid music duration or start offset.")
 
-        box_w = int(1080 * 0.82)
-        box_x = (1080 - box_w) // 2
+        scale = max(1080 / asset.w, 1920 / asset.h)
+        visual = asset.without_audio().resized(scale)
+        visual = visual.cropped(
+            x_center=visual.w / 2,
+            y_center=visual.h / 2,
+            width=1080,
+            height=1920,
+        )
+        visual = _build_extended_video(visual, total_duration)
+        resources.callback(visual.close)
+
+        audio_tracks = []
+
+        # Keep original sound only during the intro so it cannot mask music.
+        if asset.audio is not None:
+            intro_duration = min(
+                MUSIC_START_OFFSET,
+                asset.duration,
+                asset.audio.duration,
+            )
+            if intro_duration > 0:
+                audio_tracks.append(
+                    asset.audio.subclipped(0, intro_duration)
+                )
+
+        audio_tracks.append(
+            music.with_effects([
+                afx.MultiplyVolume(MUSIC_VOLUME),
+            ]).with_start(MUSIC_START_OFFSET)
+        )
+
+        # Composition applies the five-second offset even without asset audio.
+        mixed_audio = CompositeAudioClip(audio_tracks).with_duration(
+            total_duration
+        )
+        resources.callback(mixed_audio.close)
+
+        overlays = []
+        caption_count = 0
+        box_width = int(1080 * 0.82)
+        box_x = (1080 - box_width) // 2
         box_y = int(1920 * 0.46)
 
-        # Shadow layer (slightly offset dark clone)
-        shadow = TextClip(
-            text=word["text"], font=caption_font, font_size=88,
-            color="#111111", text_align="center",
-            size=(box_w, None), method="caption",
+        for index, word in enumerate(words):
+            start = max(0.0, float(word["start"]))
+            end = float(word["end"])
+
+            if index + 1 < len(words):
+                next_start = float(words[index + 1]["start"])
+                if 0 < next_start - start <= 1.5:
+                    end = next_start
+
+            end = min(total_duration, max(end, start + 0.18))
+            if start >= end:
+                continue
+
+            caption = (
+                TextClip(
+                    text=word["text"],
+                    font=caption_font,
+                    font_size=88,
+                    color="white",
+                    stroke_color="black",
+                    stroke_width=6,
+                    text_align="center",
+                    size=(box_width, None),
+                    method="caption",
+                )
+                .with_start(start)
+                .with_duration(end - start)
+                .with_position((box_x, box_y))
+            )
+            resources.callback(caption.close)
+            overlays.append(caption)
+            caption_count += 1
+
+        if caption_count == 0:
+            raise RuntimeError("No captions fit the video timeline.")
+
+        badges = _render_attribution_badge(
+            visual,
+            metadata,
+            MUSIC_START_OFFSET,
+            total_duration,
+            caption_font,
         )
-        shadow = (shadow
-                  .with_start(w_start).with_duration(w_dur)
-                  .with_position((box_x + 4, box_y + 4)))
+        if not badges:
+            raise RuntimeError("Music badge rendering failed.")
 
-        # Main white text with thick black stroke
-        txt = TextClip(
-            text=word["text"], font=caption_font, font_size=88,
-            color="white", stroke_color="black", stroke_width=6,
-            text_align="center",
-            size=(box_w, None), method="caption",
+        for badge in badges:
+            resources.callback(badge.close)
+        overlays.extend(badges)
+
+        final = (
+            CompositeVideoClip(
+                [visual, *overlays],
+                size=(1080, 1920),
+            )
+            .with_duration(total_duration)
+            .with_audio(mixed_audio)
         )
-        txt = (txt
-               .with_start(w_start).with_duration(w_dur)
-               .with_position((box_x, box_y)))
+        resources.callback(final.close)
 
-        overlays.extend([shadow, txt])
+        print(
+            f"[assemble_video] rendering {total_duration:.2f}s, "
+            f"{caption_count} caption words, music starts at "
+            f"{MUSIC_START_OFFSET:.2f}s"
+        )
 
-    if overlays:
-        video = CompositeVideoClip([video, *overlays])
+        final.write_videofile(
+            str(temporary),
+            fps=30,
+            codec="libx264",
+            audio_codec="aac",
+            audio_bitrate="192k",
+            bitrate=VIDEO_BITRATE,
+            preset=VIDEO_PRESET,
+            ffmpeg_params=VIDEO_FFMPEG_PARAMS,
+        )
 
-    FINAL_DIR.mkdir(exist_ok=True)
-    dest = FINAL_DIR / "asset_final_video.mp4"
-    video.write_videofile(
-        str(dest), fps=30, codec="libx264", audio_codec="aac",
-        bitrate=VIDEO_BITRATE, preset=VIDEO_PRESET,
-        ffmpeg_params=VIDEO_FFMPEG_PARAMS,
+    # Only expose the final upload path after the export passes validation.
+    info = _probe_media(temporary)
+    if not {"video", "audio"}.issubset(info["stream_types"]):
+        raise RuntimeError("Rendered output is missing video or audio.")
+
+    if abs(info["duration"] - total_duration) > 0.5:
+        raise RuntimeError(
+            f"Rendered duration mismatch: expected {total_duration:.2f}s, "
+            f"got {info['duration']:.2f}s."
+        )
+
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-xerror",
+            "-i", str(temporary),
+            "-map", "0:a:0",
+            "-f", "null", "-",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    state["final_video_path"] = str(dest)
+
+    temporary.replace(destination)
+    state["final_video_path"] = str(destination)
+
+    # Mark the track used only after a successful render.
+    _save_used_song(
+        state["audio_library_video_id"],
+        metadata["source"],
+    )
+
+    print(f"[assemble_video] validated output: {destination}")
     return state
 
 
@@ -954,6 +1034,9 @@ def upload_to_youtube(state: VideoState) -> VideoState:
     import random as _random
     title = _random.choice(generic_titles)
     description = "Follow for more! 🔔\n\n#shorts #viral #trending #fyp"
+    attribution = state.get("music_attribution", "")
+    if attribution:
+        description += f"\n\n{attribution}"
     request = yt.videos().insert(
         part="snippet,status",
         body={
@@ -1040,8 +1123,11 @@ def upload_to_instagram(state: VideoState) -> VideoState:
     audio_name  = f"{song_title} - {song_artist}" if song_title else ""
 
     # Attribution fallback: always append track credit to caption text
-    if song_title:
-        caption += f"\n\nAudio: {song_title} · {song_artist}"
+    attribution = state.get("music_attribution", "")
+    if attribution:
+        caption += f"\n\n{attribution}"
+    elif song_title:
+        caption += f"\n\nAudio: {song_title} - {song_artist}"
 
     # Google Drive high-speed CDN direct video stream URL
     video_url = f"https://drive.usercontent.google.com/download?id={drive_file_id}&export=download"

@@ -69,7 +69,17 @@ jobs:
           # GitHub-hosted runner IPs, which is why music/captions/duration
           # were silently missing before this fix. See README for how to export.
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-        run: python asset_video_workflow.py
+        run: |
+          set -euo pipefail
+          echo "Running commit: $(git rev-parse HEAD)"
+          python -m py_compile asset_video_workflow.py
+          rm -f output_final_video/asset_final_video.mp4
+          rm -f output_final_video/asset_final_video.rendering.mp4
+          python -u asset_video_workflow.py
+
+      - name: Remove temporary YouTube cookies
+        if: always()
+        run: rm -f .ytdlp_cookies.txt
 
       # Commit the updated used_songs.json so the next run picks a different song
       - name: Persist used-songs tracker
