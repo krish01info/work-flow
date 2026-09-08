@@ -5,5 +5,4 @@ stock_clips/
 __pycache__/
 *.pyc
 .env
-requirement.txt
-
+myenv/
