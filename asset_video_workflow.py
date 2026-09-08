@@ -16,7 +16,6 @@ import os
 import random
 import subprocess
 import sys
-import tempfile
 import time
 import pathlib
 from pathlib import Path
@@ -41,7 +40,6 @@ from moviepy import (
     TextClip,
     VideoFileClip,
     concatenate_audioclips,
-    vfx,
 )
 
 load_dotenv()
@@ -74,7 +72,8 @@ VIDEO_PRESET        = "slow"
 VIDEO_FFMPEG_PARAMS = ["-crf", "18", "-movflags", "+faststart"]
 
 # YouTube Audio Library — copyright-free music for YouTube creators
-YT_AUDIO_LIBRARY_CHANNEL = "https://www.youtube.com/@YouTubeAudioLibrary"
+# /videos tab ensures yt-dlp lists individual tracks
+YT_AUDIO_LIBRARY_CHANNEL = "https://www.youtube.com/@YouTubeAudioLibrary/videos"
 
 REQUIRED_ENV_VARS = [
     "GOOGLE_CLIENT_ID",
@@ -241,13 +240,6 @@ def _extract_chorus(src_path: Path, dest_path: Path, duration: float) -> None:
         )
 
 
-def _loop_audio(clip: AudioFileClip, duration: float) -> AudioFileClip:
-    pieces, remaining = [], duration
-    while remaining > 0:
-        piece = clip.subclipped(0, min(clip.duration, remaining))
-        pieces.append(piece)
-        remaining -= piece.duration
-    return concatenate_audioclips(pieces)
 
 
 # ---------------------------------------------------------------------------
@@ -310,8 +302,9 @@ def fetch_trending_song(state: VideoState) -> VideoState:
 
     random.shuffle(entries)
     chosen = None
+    # Key format must match what _save_used_song stores: "video_id|YouTube Audio Library"
     for entry in entries:
-        if entry["id"] not in used:
+        if f"{entry['id']}|YouTube Audio Library" not in used:
             chosen = entry
             break
 
