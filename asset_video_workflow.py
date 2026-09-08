@@ -173,6 +173,40 @@ def validate_prerequisites() -> None:
         raise FileNotFoundError(f"Asset video not found: {ASSET_VIDEO}")
 
 
+# ---------------------------------------------------------------------------
+# yt-dlp cookies (CI runner IPs are frequently bot-blocked by YouTube without
+# these). Set the YOUTUBE_COOKIES secret to the contents of a Netscape-format
+# cookies.txt exported from a signed-in browser session (e.g. via the
+# "Get cookies.txt LOCALLY" extension). If unset, yt-dlp runs unauthenticated
+# and may silently return zero results on hosted CI runners.
+# ---------------------------------------------------------------------------
+_COOKIE_FILE = BASE_DIR / ".ytdlp_cookies.txt"
+
+
+def _ytdlp_cookie_args() -> list:
+    cookies_content = os.getenv("YOUTUBE_COOKIES", "")
+    if not cookies_content:
+        return []
+    try:
+        if not _COOKIE_FILE.exists():
+            _COOKIE_FILE.write_text(cookies_content, encoding="utf-8")
+        return ["--cookies", str(_COOKIE_FILE)]
+    except Exception as exc:
+        print(f"[ytdlp] could not write cookies file: {exc}")
+        return []
+
+
+def _log_ytdlp_failure(label: str, result) -> None:
+    """Print whatever yt-dlp actually said, instead of failing silently."""
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    print(f"[{label}] yt-dlp exited {result.returncode}")
+    if stderr:
+        print(f"[{label}] stderr: {stderr[-1500:]}")
+    elif stdout:
+        print(f"[{label}] stdout: {stdout[-1500:]}")
+
+
 def with_retry(max_attempts: int = 3, base_delay: int = 2):
     def decorator(fn):
         @functools.wraps(fn)
@@ -452,9 +486,11 @@ def fetch_trending_song(state: VideoState) -> VideoState:
                         "--print", "%(id)s|||%(title)s",
                         "--playlist-items", "1-50",
                         "--no-warnings",
-                    ],
+                    ] + _ytdlp_cookie_args(),
                     capture_output=True, text=True, timeout=60,
                 )
+                if result.returncode != 0 or not result.stdout.strip():
+                    _log_ytdlp_failure(f"fetch_trending_song:{src['source']}", result)
                 for line in result.stdout.strip().splitlines():
                     if "|||" in line:
                         vid_id, title = line.split("|||", 1)
@@ -491,9 +527,11 @@ def fetch_trending_song(state: VideoState) -> VideoState:
                             "--no-playlist",          # correct flag for search
                             "--print", "%(id)s|||%(title)s",
                             "--no-warnings",
-                        ],
+                        ] + _ytdlp_cookie_args(),
                         capture_output=True, text=True, timeout=60,
                     )
+                    if result.returncode != 0 or not result.stdout.strip():
+                        _log_ytdlp_failure(f"fetch_trending_song:search:{src_name}", result)
                     for line in result.stdout.strip().splitlines():
                         if "|||" in line:
                             vid_id, title = line.split("|||", 1)
@@ -594,18 +632,25 @@ def download_trending_music(state: VideoState) -> VideoState:
         "--audio-quality", "0",
         "--output", str(dest_template),
         "--no-playlist",
-        "--quiet",
         "--no-warnings",
-    ]
+    ] + _ytdlp_cookie_args()
 
     downloaded = False
+
+    def _try(cmd_prefix) -> bool:
+        proc = subprocess.run(
+            cmd_prefix + base_args, capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            _log_ytdlp_failure("download_trending_music", proc)
+            return False
+        return True
+
     try:
-        subprocess.run(["yt-dlp"] + base_args, check=True, timeout=120)
-        downloaded = True
+        downloaded = _try(["yt-dlp"])
     except FileNotFoundError:
         try:
-            subprocess.run([sys.executable, "-m", "yt_dlp"] + base_args, check=True, timeout=120)
-            downloaded = True
+            downloaded = _try([sys.executable, "-m", "yt_dlp"])
         except Exception as exc:
             print(f"[download_trending_music] error: {exc}")
     except Exception as exc:
@@ -747,6 +792,28 @@ def assemble_video(state: VideoState) -> VideoState:
     music_clip = None
     if validated_metadata and state.get("music_path") and Path(state["music_path"]).is_file():
         music_clip = AudioFileClip(state["music_path"])
+
+    # A track was *selected* in fetch_trending_song (which always succeeds,
+    # thanks to its hardcoded fallback list) but the download/validation step
+    # never produced a usable file. Previously this fell through silently and
+    # the "final" video was just the raw asset re-encoded — no music, no
+    # captions, no length change, with the job still reporting green.
+    # Fail loudly instead so the real yt-dlp error (printed above, in the
+    # download_trending_music logs) actually surfaces in the Actions run.
+    if state.get("trending_song_title") and not music_clip and not os.getenv("ALLOW_RAW_FALLBACK"):
+        raise RuntimeError(
+            "[assemble_video] Aborting: a track was selected "
+            f"({state.get('trending_song_title')!r} by "
+            f"{state.get('trending_song_artist')!r}) but no playable audio "
+            "was produced, so the output would just be the unedited raw "
+            "asset video. Check the 'download_trending_music' log lines "
+            "above for the actual yt-dlp error — on GitHub-hosted runners "
+            "this is almost always YouTube blocking the runner's IP. Add a "
+            "YOUTUBE_COOKIES secret (Netscape cookies.txt from a signed-in "
+            "browser) to authenticate yt-dlp and this should resolve it. "
+            "Set ALLOW_RAW_FALLBACK=1 to bypass this check and permit a "
+            "music-less upload."
+        )
 
     # Total duration = 5s intro + chorus length; or just asset_dur if no music
     chorus_dur   = music_clip.duration if music_clip else 0

@@ -64,6 +64,11 @@ jobs:
           DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
           INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          # Netscape-format cookies.txt content from a signed-in YouTube session.
+          # Without this, yt-dlp is frequently bot-blocked by YouTube on
+          # GitHub-hosted runner IPs, which is why music/captions/duration
+          # were silently missing before this fix. See README for how to export.
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: python asset_video_workflow.py
 
       # Commit the updated used_songs.json so the next run picks a different song
