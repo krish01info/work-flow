@@ -75,7 +75,7 @@ jobs:
           if [ -f "assets/used_songs.json" ]; then
             git add assets/used_songs.json
             git diff --cached --quiet || git commit -m "chore: update used_songs.json [skip ci]"
-            git push || echo "::warning::Could not push used_songs.json — will retry next run"
+            git push
           fi
 
       - name: Upload artifacts (backup / debug)

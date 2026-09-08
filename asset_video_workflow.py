@@ -104,6 +104,8 @@ REQUIRED_ENV_VARS = [
     "GOOGLE_CLIENT_SECRET",
     "YOUTUBE_REFRESH_TOKEN",
     "DRIVE_REFRESH_TOKEN",
+    "INSTAGRAM_ACCOUNT_ID",
+    "INSTAGRAM_ACCESS_TOKEN",
 ]
 
 
@@ -327,6 +329,30 @@ def validate_music_license(metadata: dict) -> dict:
         f"attribution_required={validated['attribution_required']}"
     )
     return validated
+
+
+def prepare_music_for_render(state: VideoState) -> dict:
+    """Validate music before it can be attached to the rendered video.
+
+    An invalid source clears the audio path and metadata so later rendering
+    and publishing nodes cannot use rejected music.
+    """
+    raw_metadata = state.get("music_metadata", {})
+    if not raw_metadata:
+        return {}
+
+    try:
+        validated_metadata = validate_music_license(raw_metadata)
+    except ValueError as exc:
+        print(f"[assemble_video] music rejected by license validator: {exc}")
+        state["music_path"] = ""
+        state["music_attribution"] = ""
+        state["music_metadata"] = {}
+        state["caption_words"] = []
+        return {}
+
+    state["music_metadata"] = validated_metadata
+    return validated_metadata
 
 
 def _render_attribution_badge(
@@ -713,9 +739,13 @@ def assemble_video(state: VideoState) -> VideoState:
         width=1080, height=1920,
     )
 
+    # Validate music before opening it or attaching it to the video.
+    # Rejected music clears its path and metadata in the state.
+    validated_metadata = prepare_music_for_render(state)
+
     # --- Determine total video duration ---
     music_clip = None
-    if state.get("music_path") and Path(state["music_path"]).is_file():
+    if validated_metadata and state.get("music_path") and Path(state["music_path"]).is_file():
         music_clip = AudioFileClip(state["music_path"])
 
     # Total duration = 5s intro + chorus length; or just asset_dur if no music
@@ -740,31 +770,11 @@ def assemble_video(state: VideoState) -> VideoState:
         else:
             video = video.with_audio(music_clip)
 
-    # --- Music attribution badge (YouTube Shorts-style) ---
-    # validate_music_license() is the single gate: only verified royalty-free
-    # sources pass through.  If validation fails, video renders without music.
-    # NOTE: The visual badge identifies royalty-free music. It does NOT prevent
-    #       Content ID claims. Only properly licensed music passes this check.
-    overlays     = []
+    # --- Music attribution ---
+    # License validation already completed before the music clip was opened.
+    # No visual badge is burned into the video; Instagram receives audio_name.
+    overlays = []
     caption_font = _ensure_caption_font()
-    font         = str(FONT_PATH) if FONT_PATH.exists() else None
-
-    raw_metadata:       dict = state.get("music_metadata", {})
-    validated_metadata: dict = {}
-
-    if raw_metadata and music_clip:
-        try:
-            validated_metadata = validate_music_license(raw_metadata)
-        except ValueError as exc:
-            print(f"[assemble_video] ✗ music rejected by license validator: {exc}")
-            print("[assemble_video] rendering video WITHOUT music.")
-            music_clip = None
-
-    if validated_metadata and music_clip:
-        # No visual badge burned into video pixels.
-        # Instagram's native ♫ audio tag is applied via audio_name in upload_to_instagram.
-        # Save the validated metadata back to state so the upload node can read it.
-        state["music_metadata"] = validated_metadata
 
     # ── Lyric captions (word-by-word, styled with Anton font) ──
     caption_words = state.get("caption_words", [])
@@ -940,14 +950,13 @@ def upload_to_instagram(state: VideoState) -> VideoState:
     drive_file_id   = state.get("drive_file_id", "")
 
     if not ig_account_id or not ig_access_token:
-        print("[upload_to_instagram] INSTAGRAM_ACCOUNT_ID or INSTAGRAM_ACCESS_TOKEN missing — skipping upload")
-        state["instagram_url"] = ""
-        return state
+        raise OSError(
+            "Instagram credentials are required: set INSTAGRAM_ACCOUNT_ID and "
+            "INSTAGRAM_ACCESS_TOKEN."
+        )
 
     if not drive_file_id:
-        print("[upload_to_instagram] no drive_file_id available — skipping upload")
-        state["instagram_url"] = ""
-        return state
+        raise RuntimeError("Drive video is required before the Instagram upload.")
 
     ig_captions = [
         "This transition hits different 🔥 #reels #viral #trending #explore #fyp",
@@ -990,9 +999,7 @@ def upload_to_instagram(state: VideoState) -> VideoState:
         init_res = requests.post(init_url, data=ig_payload, timeout=30).json()
 
         if "id" not in init_res:
-            print(f"[upload_to_instagram] container init failed: {init_res}")
-            state["instagram_url"] = ""
-            return state
+            raise RuntimeError(f"Instagram container initialization failed: {init_res}")
 
         container_id = init_res["id"]
         print(f"[upload_to_instagram] container created: {container_id}, waiting for processing ...")
@@ -1009,14 +1016,10 @@ def upload_to_instagram(state: VideoState) -> VideoState:
                 print("[upload_to_instagram] video processing finished!")
                 break
             elif code == "ERROR":
-                print(f"[upload_to_instagram] container failed: {stat}")
-                state["instagram_url"] = ""
-                return state
+                raise RuntimeError(f"Instagram container processing failed: {stat}")
             print(f"[upload_to_instagram] processing: {code} ...")
         else:
-            print("[upload_to_instagram] processing timed out")
-            state["instagram_url"] = ""
-            return state
+            raise TimeoutError("Instagram container processing timed out")
 
         # Publish the Reel
         pub_url = f"https://graph.facebook.com/v20.0/{ig_account_id}/media_publish"
@@ -1035,14 +1038,10 @@ def upload_to_instagram(state: VideoState) -> VideoState:
             state["instagram_url"] = ig_url
             print(f"[upload_to_instagram] Reel published! {ig_url}")
             return state
-        else:
-            print(f"[upload_to_instagram] publish failed: {pub_res}")
+        raise RuntimeError(f"Instagram Reel publishing failed: {pub_res}")
 
     except Exception as exc:
-        print(f"[upload_to_instagram] Meta API error: {exc}")
-
-    state["instagram_url"] = ""
-    return state
+        raise RuntimeError(f"Instagram upload failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
