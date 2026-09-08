@@ -385,91 +385,152 @@ def _render_attribution_badge(
 
 
 # ---------------------------------------------------------------------------
-# Node 1 — fetch_trending_song (YouTube Audio Library, skip already-used)
+# Node 1 — fetch_trending_song
 # ---------------------------------------------------------------------------
 def fetch_trending_song(state: VideoState) -> VideoState:
-    """Pick a random copyright-free track from YouTube Audio Library.
+    """Pick a royalty-free track from NCS or YouTube Audio Library.
 
-    YouTube Audio Library tracks are explicitly licensed for reuse on
-    YouTube — no Content ID claims, no copyright strikes.
+    Strategy (in order):
+      1. NoCopyrightSounds channel  — reliable, yt-dlp enumerates it well
+      2. YouTube Audio Library channel  — may require extra yt-dlp flags
+      3. yt-dlp search fallback  — fixed flags (no --flat-playlist for search)
+      4. Hardcoded emergency tracks  — known-good video IDs, always present
     """
-    print("[fetch_trending_song] fetching YouTube Audio Library tracks ...")
-    used = _load_used_songs()
+    print("[fetch_trending_song] fetching royalty-free tracks ...")
+    used    = _load_used_songs()
     entries = []
 
-    # ── Primary: pull track list directly from the Audio Library channel ──
-    for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
-        try:
-            result = subprocess.run(
-                cmd_prefix + [
-                    YT_AUDIO_LIBRARY_CHANNEL,
-                    "--flat-playlist",
-                    "--print", "%(id)s|||%(title)s",
-                    "--playlist-items", "1-80",
-                    "--no-warnings", "--quiet",
-                ],
-                capture_output=True, text=True, timeout=45,
-            )
-            for line in result.stdout.strip().splitlines():
-                if "|||" in line:
-                    vid_id, title = line.split("|||", 1)
-                    entries.append({"id": vid_id.strip(), "title": title.strip()})
-            if entries:
-                break
-        except Exception as exc:
-            print(f"[fetch_trending_song] channel fetch attempt failed: {exc}")
+    # ─── Source definitions ───────────────────────────────────────────────
+    CHANNEL_SOURCES = [
+        {
+            "url":    "https://www.youtube.com/@NoCopyrightSounds/videos",
+            "source": "NoCopyrightSounds",
+            "artist": "NoCopyrightSounds",
+        },
+        {
+            "url":    YT_AUDIO_LIBRARY_CHANNEL,
+            "source": "YouTube Audio Library",
+            "artist": "YouTube Audio Library",
+        },
+    ]
 
-    # ── Fallback: search YouTube for Audio Library music ──
-    if not entries:
-        print("[fetch_trending_song] falling back to search ...")
+    # ─── 1 & 2: Try each channel with --flat-playlist ────────────────────
+    active_source = CHANNEL_SOURCES[0]
+    for src in CHANNEL_SOURCES:
         for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
             try:
                 result = subprocess.run(
                     cmd_prefix + [
-                        "ytsearch30:youtube audio library no copyright background music",
+                        src["url"],
                         "--flat-playlist",
                         "--print", "%(id)s|||%(title)s",
-                        "--no-warnings", "--quiet",
+                        "--playlist-items", "1-50",
+                        "--no-warnings",
                     ],
-                    capture_output=True, text=True, timeout=45,
+                    capture_output=True, text=True, timeout=60,
                 )
                 for line in result.stdout.strip().splitlines():
                     if "|||" in line:
                         vid_id, title = line.split("|||", 1)
-                        entries.append({"id": vid_id.strip(), "title": title.strip()})
+                        vid_id = vid_id.strip()
+                        title  = title.strip()
+                        if vid_id and len(vid_id) >= 8:
+                            entries.append({
+                                "id":     vid_id,
+                                "title":  title,
+                                "source": src["source"],
+                                "artist": src["artist"],
+                            })
                 if entries:
+                    active_source = src
+                    print(f"[fetch_trending_song] got {len(entries)} tracks from {src['source']}")
                     break
             except Exception as exc:
-                print(f"[fetch_trending_song] search fallback failed: {exc}")
+                print(f"[fetch_trending_song] {src['source']} fetch failed: {exc}")
+        if entries:
+            break
 
+    # ─── 3: Search fallback (NOTE: use --no-playlist, NOT --flat-playlist) ─
+    if not entries:
+        print("[fetch_trending_song] channels failed — trying yt-dlp search ...")
+        for query, src_name in [
+            ("NoCopyrightSounds music free to use 2024", "NoCopyrightSounds"),
+            ("youtube audio library free music no copyright", "YouTube Audio Library"),
+        ]:
+            for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
+                try:
+                    result = subprocess.run(
+                        cmd_prefix + [
+                            f"ytsearch30:{query}",
+                            "--no-playlist",          # correct flag for search
+                            "--print", "%(id)s|||%(title)s",
+                            "--no-warnings",
+                        ],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    for line in result.stdout.strip().splitlines():
+                        if "|||" in line:
+                            vid_id, title = line.split("|||", 1)
+                            vid_id = vid_id.strip()
+                            if vid_id and len(vid_id) >= 8:
+                                entries.append({
+                                    "id":     vid_id,
+                                    "title":  title.strip(),
+                                    "source": src_name,
+                                    "artist": src_name,
+                                })
+                    if entries:
+                        print(f"[fetch_trending_song] search got {len(entries)} results")
+                        break
+                except Exception as exc:
+                    print(f"[fetch_trending_song] search failed: {exc}")
+            if entries:
+                break
+
+    # ─── 4: Hardcoded emergency fallback  ────────────────────────────────
+    # Known NCS tracks — public, no copyright, always available.
+    if not entries:
+        print("[fetch_trending_song] all sources failed — using emergency fallback tracks")
+        entries = [
+            {"id": "bM7SZ5SBzyY", "title": "Fade",               "source": "NoCopyrightSounds", "artist": "Alan Walker"},
+            {"id": "y8XUlp4JhY4", "title": "Spectre",            "source": "NoCopyrightSounds", "artist": "Alan Walker"},
+            {"id": "a-KKs05RMEM", "title": "Alone",              "source": "NoCopyrightSounds", "artist": "Alan Walker"},
+            {"id": "TlBQH8M5mc4", "title": "Island",             "source": "NoCopyrightSounds", "artist": "Jarico"},
+            {"id": "J2X5mJ3HDYE", "title": "Force",              "source": "NoCopyrightSounds", "artist": "Alan Walker"},
+        ]
+
+    # ─── Pick an unused track ─────────────────────────────────────────────
     random.shuffle(entries)
     chosen = None
-    # Key format must match what _save_used_song stores: "video_id|YouTube Audio Library"
     for entry in entries:
-        if f"{entry['id']}|YouTube Audio Library" not in used:
+        # Key format: "{video_id}|{source}" — must match _save_used_song format
+        key = f"{entry['id']}|{entry['source']}"
+        if key not in used:
             chosen = entry
             break
 
     if not chosen:
         print("[fetch_trending_song] all tracks used — resetting tracker")
         USED_SONGS_DB.write_text("[]", encoding="utf-8")
-        chosen = entries[0] if entries else {"id": "", "title": "No Copyright Music"}
+        chosen = entries[0]
 
     state["trending_song_title"]    = chosen["title"]
-    state["trending_song_artist"]   = "YouTube Audio Library"
+    state["trending_song_artist"]   = chosen["artist"]
     state["audio_library_video_id"] = chosen["id"]
 
-    # Build raw MusicMetadata — license fields are populated by validate_music_license
     state["music_metadata"] = {
         "title":                chosen["title"],
-        "artist":               "YouTube Audio Library",
-        "source":               "YouTube Audio Library",
+        "artist":               chosen["artist"],
+        "source":               chosen["source"],
         "license":              "",   # filled by validate_music_license
         "license_url":          "",   # filled by validate_music_license
         "attribution_required": True, # filled by validate_music_license
         "attribution_text":     "",   # filled by validate_music_license
     }
-    print(f"[fetch_trending_song] picked: {chosen['title']!r} (id={chosen['id']})")
+    print(
+        f"[fetch_trending_song] ✓ picked: {chosen['title']!r} "
+        f"by {chosen['artist']} from {chosen['source']} (id={chosen['id']})"
+    )
     return state
 
 
@@ -540,10 +601,11 @@ def download_trending_music(state: VideoState) -> VideoState:
         state["music_path"]        = str(chorus_mp3)
         state["music_attribution"] = (
             f"Music: {state['trending_song_title']} "
-            f"(YouTube Audio Library — free to use)"
+            f"by {state['trending_song_artist']} (royalty-free)"
         )
-        # Track by video_id so the same track isn't picked again
-        _save_used_song(video_id, "YouTube Audio Library")
+        # Save used track: key = "{video_id}|{source}" to match fetch dedup check
+        source = state.get("music_metadata", {}).get("source", "YouTube Audio Library")
+        _save_used_song(video_id, source)
         print(f"[download_trending_music] chorus saved -> {chorus_mp3}")
     else:
         print("[download_trending_music] download failed — no music")
