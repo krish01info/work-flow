@@ -741,11 +741,10 @@ def transcribe_music(state: VideoState) -> VideoState:
     words.sort(key=lambda word: word["start"])
 
     if not words:
-        raise RuntimeError(
-            "No lyric captions were detected. The selected track may be "
-            "instrumental. Upload aborted rather than publishing without "
-            "captions."
-        )
+        # Instrumental track — no lyrics detected. Upload will proceed without
+        # karaoke captions. The music badge still appears on the video.
+        print("[transcribe_music] no lyrics detected (instrumental track) — skipping captions")
+
 
     state["caption_words"] = words
     print(f"[transcribe_music] {len(words)} caption words ready")
@@ -799,7 +798,7 @@ def assemble_video(state: VideoState) -> VideoState:
     metadata = prepare_music_for_render(state)
     words = state.get("caption_words", [])
     if not words:
-        raise RuntimeError("Captions are missing. Upload aborted.")
+        print("[assemble_video] no captions — rendering video without lyric overlay")
 
     FINAL_DIR.mkdir(parents=True, exist_ok=True)
     destination = FINAL_DIR / "asset_final_video.mp4"
@@ -895,7 +894,8 @@ def assemble_video(state: VideoState) -> VideoState:
             caption_count += 1
 
         if caption_count == 0:
-            raise RuntimeError("No captions fit the video timeline.")
+            print("[assemble_video] no captions rendered — video will have no lyric overlay")
+
 
         badges = _render_attribution_badge(
             visual,
