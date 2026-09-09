@@ -617,22 +617,38 @@ def _get_instagrapi_client() -> Client:
     password = os.getenv("INSTAGRAM_PASSWORD", "")
     session_b64 = os.getenv("INSTAGRAM_SESSION_JSON", "")
 
-    # Try loading saved session first (avoids triggering 2FA on every run)
+    # Load saved session WITHOUT calling login — session cookies work from any IP.
+    # Calling cl.login() from GitHub Actions (new IP every run) = ChallengeRequired.
     if session_b64:
         try:
             session_json = base64.b64decode(session_b64).decode("utf-8")
             SESSION_FILE.write_text(session_json, encoding="utf-8")
             cl.load_settings(str(SESSION_FILE))
-            cl.login(username, password)
-            print("[instagrapi] session restored ✓")
+            cl.get_timeline_feed()   # lightweight check, no login call
+            print("[instagrapi] session loaded and verified (no re-login)")
             return cl
+        except LoginRequired:
+            print("[instagrapi] saved session expired -- will do fresh login")
+            cl = Client()
+            cl.delay_range = [1, 3]
         except Exception as exc:
-            print(f"[instagrapi] session restore failed ({exc}), trying fresh login ...")
+            print(f"[instagrapi] session verify failed ({exc}) -- will do fresh login")
+            cl = Client()
+            cl.delay_range = [1, 3]
 
-    # Fresh login
+    # Fresh login fallback.
+    # NOTE: This triggers ChallengeRequired on GitHub Actions (new IP every run).
+    # Run generate_instagram_session.py on your LOCAL machine first,
+    # then add the output as INSTAGRAM_SESSION_JSON secret to skip this path.
+    if not username or not password:
+        raise RuntimeError(
+            "No saved session and no credentials set. "
+            "Run generate_instagram_session.py on your local machine first."
+        )
     try:
         cl.login(username, password)
-        print("[instagrapi] fresh login successful ✓")
+        print("[instagrapi] fresh login successful")
+
     except TwoFactorRequired:
         # In CI the 2FA code must be passed via env var INSTAGRAM_2FA_CODE
         code = os.getenv("INSTAGRAM_2FA_CODE", "")
