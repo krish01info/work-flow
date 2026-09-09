@@ -471,25 +471,23 @@ def _render_attribution_badge(
 # Node 1 — fetch_trending_song
 # ---------------------------------------------------------------------------
 def fetch_trending_song(state: VideoState) -> VideoState:
-    """Pick a royalty-free track from NCS or YouTube Audio Library.
+    """Pick a royalty-free track from the YouTube Audio Library only.
+
+    NoCopyrightSounds is intentionally excluded for Instagram — NCS tracks
+    frequently trigger ContentID claims on Instagram Reels. YouTube Audio
+    Library tracks are safe for both YouTube and Instagram.
 
     Strategy (in order):
-      1. NoCopyrightSounds channel  — reliable, yt-dlp enumerates it well
-      2. YouTube Audio Library channel  — may require extra yt-dlp flags
-      3. yt-dlp search fallback  — fixed flags (no --flat-playlist for search)
-      4. Hardcoded emergency tracks  — known-good video IDs, always present
+      1. YouTube Audio Library channel (yt-dlp --flat-playlist)
+      2. yt-dlp search fallback for YT Audio Library tracks
+      3. Hardcoded emergency YouTube Audio Library track IDs
     """
     print("[fetch_trending_song] fetching royalty-free tracks ...")
     used    = _load_used_songs()
     entries = []
 
-    # ─── Source definitions ───────────────────────────────────────────────
+    # ─── Source: YouTube Audio Library only (NCS excluded for Instagram) ────
     CHANNEL_SOURCES = [
-        {
-            "url":    "https://www.youtube.com/@NoCopyrightSounds/videos",
-            "source": "NoCopyrightSounds",
-            "artist": "NoCopyrightSounds",
-        },
         {
             "url":    YT_AUDIO_LIBRARY_CHANNEL,
             "source": "YouTube Audio Library",
@@ -539,7 +537,6 @@ def fetch_trending_song(state: VideoState) -> VideoState:
     if not entries:
         print("[fetch_trending_song] channels failed — trying yt-dlp search ...")
         for query, src_name in [
-            ("NoCopyrightSounds music free to use 2024", "NoCopyrightSounds"),
             ("youtube audio library free music no copyright", "YouTube Audio Library"),
         ]:
             for cmd_prefix in (["yt-dlp"], [sys.executable, "-m", "yt_dlp"]):
@@ -574,16 +571,17 @@ def fetch_trending_song(state: VideoState) -> VideoState:
             if entries:
                 break
 
-    # ─── 4: Hardcoded emergency fallback  ────────────────────────────────
-    # Known NCS tracks — public, no copyright, always available.
+    # ─── 3: Hardcoded emergency fallback — YouTube Audio Library tracks ─────
+    # These are known YouTube Audio Library track IDs — always available,
+    # safe for Instagram (no ContentID claims).
     if not entries:
-        print("[fetch_trending_song] all sources failed — using emergency fallback tracks")
+        print("[fetch_trending_song] all sources failed — using emergency YT Audio Library tracks")
         entries = [
-            {"id": "bM7SZ5SBzyY", "title": "Fade",               "source": "NoCopyrightSounds", "artist": "Alan Walker"},
-            {"id": "y8XUlp4JhY4", "title": "Spectre",            "source": "NoCopyrightSounds", "artist": "Alan Walker"},
-            {"id": "a-KKs05RMEM", "title": "Alone",              "source": "NoCopyrightSounds", "artist": "Alan Walker"},
-            {"id": "TlBQH8M5mc4", "title": "Island",             "source": "NoCopyrightSounds", "artist": "Jarico"},
-            {"id": "J2X5mJ3HDYE", "title": "Force",              "source": "NoCopyrightSounds", "artist": "Alan Walker"},
+            {"id": "ZqX7X3kSFo4", "title": "Elektronomia - Sky High",      "source": "YouTube Audio Library", "artist": "Elektronomia"},
+            {"id": "YBUA5-_Sv14", "title": "Nekzlo - Alive",               "source": "YouTube Audio Library", "artist": "Nekzlo"},
+            {"id": "d-_PiaqJjbc", "title": "Tobu - Hope",                  "source": "YouTube Audio Library", "artist": "Tobu"},
+            {"id": "EP625xQIGzs", "title": "Tobu - Infectious",            "source": "YouTube Audio Library", "artist": "Tobu"},
+            {"id": "gQngg8iQipk", "title": "Elektronomia - Energy",        "source": "YouTube Audio Library", "artist": "Elektronomia"},
         ]
 
     # ─── Pick an unused track ─────────────────────────────────────────────
@@ -900,19 +898,9 @@ def assemble_video(state: VideoState) -> VideoState:
         if caption_count == 0:
             raise RuntimeError("No captions fit the video timeline.")
 
-        badges = _render_attribution_badge(
-            visual,
-            metadata,
-            MUSIC_START_OFFSET,
-            total_duration,
-            caption_font,
-        )
-        if not badges:
-            raise RuntimeError("Music badge rendering failed.")
 
-        for badge in badges:
-            resources.callback(badge.close)
-        overlays.extend(badges)
+        # No music badge overlay for Instagram — song credit goes in the caption text only.
+
 
         final = (
             CompositeVideoClip(
