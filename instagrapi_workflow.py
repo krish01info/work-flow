@@ -69,6 +69,9 @@ FONT_PATH         = BASE_DIR / "assets" / "Roboto-Bold.ttf"
 USED_SONGS_DB     = BASE_DIR / "assets" / "used_songs.json"
 CAPTION_FONT_PATH = BASE_DIR / "assets" / "Anton-Regular.ttf"
 SESSION_FILE      = BASE_DIR / ".instagrapi_session.json"
+# Shared manifest written by youtube_workflow — reuse its audio to avoid
+# a second yt-dlp call (which often gets bot-blocked on GitHub runners).
+SHARED_AUDIO_MANIFEST = BASE_DIR / "output_audio" / ".shared_audio_manifest.json"
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -374,9 +377,35 @@ def fetch_trending_song(state: VideoState) -> VideoState:
 # ---------------------------------------------------------------------------
 def download_trending_music(state: VideoState) -> VideoState:
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    state["music_path"] = state["music_attribution"] = ""
+
+    # ── Fast path: reuse audio already downloaded by youtube_workflow ────────
+    # This avoids a second yt-dlp call on the same GitHub runner (bot-block risk).
+    if SHARED_AUDIO_MANIFEST.is_file():
+        try:
+            manifest = json.loads(SHARED_AUDIO_MANIFEST.read_text(encoding="utf-8"))
+            music_path = Path(manifest.get("music_path", ""))
+            if music_path.is_file():
+                print(f"[download_trending_music] reusing audio from shared manifest: {music_path}")
+                state["music_path"]             = str(music_path)
+                state["music_attribution"]      = manifest.get("music_attribution", "")
+                state["music_metadata"]         = manifest.get("music_metadata", {})
+                state["trending_song_title"]    = manifest.get("trending_song_title", "")
+                state["trending_song_artist"]   = manifest.get("trending_song_artist", "")
+                state["audio_library_video_id"] = manifest.get("audio_library_video_id", "")
+                # Reuse captions too — already transcribed by YouTube pipeline
+                if manifest.get("caption_words"):
+                    state["caption_words"] = manifest["caption_words"]
+                prepare_music_for_render(state)
+                return state
+            else:
+                print("[download_trending_music] manifest audio file missing — falling back to download")
+        except Exception as exc:
+            print(f"[download_trending_music] manifest read failed ({exc}) — falling back to download")
+
+    # ── Slow path: download fresh via yt-dlp ─────────────────────────────────
     raw_mp3    = AUDIO_DIR / "asset_trending_music_full.mp3"
     chorus_mp3 = AUDIO_DIR / "asset_trending_music.mp3"
-    state["music_path"] = state["music_attribution"] = ""
 
     video_id = state.get("audio_library_video_id", "")
     if not video_id:

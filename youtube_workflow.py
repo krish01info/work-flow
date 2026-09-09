@@ -61,6 +61,9 @@ FONT_PATH      = BASE_DIR / "assets" / "Roboto-Bold.ttf"
 USED_SONGS_DB    = BASE_DIR / "assets" / "used_songs.json"
 CAPTION_FONT_URL = "https://fonts.gstatic.com/s/anton/v25/1Ptgg87LROyAm0K08i4gS7lu.woff2"
 CAPTION_FONT_PATH = BASE_DIR / "assets" / "Anton-Regular.ttf"
+# Written by youtube_workflow after a successful download so instagram_workflow
+# can reuse the same audio without a second yt-dlp call.
+SHARED_AUDIO_MANIFEST = BASE_DIR / "output_audio" / ".shared_audio_manifest.json"
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -970,6 +973,25 @@ def assemble_video(state: VideoState) -> VideoState:
         state["audio_library_video_id"],
         metadata["source"],
     )
+
+    # Write shared manifest so instagram_workflow can reuse this audio
+    # without a second yt-dlp download (avoids bot-block on GitHub runners).
+    try:
+        manifest = {
+            "music_path":             state["music_path"],
+            "music_attribution":      state.get("music_attribution", ""),
+            "music_metadata":         state.get("music_metadata", {}),
+            "trending_song_title":    state.get("trending_song_title", ""),
+            "trending_song_artist":   state.get("trending_song_artist", ""),
+            "audio_library_video_id": state.get("audio_library_video_id", ""),
+            "caption_words":          state.get("caption_words", []),
+        }
+        SHARED_AUDIO_MANIFEST.write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        print(f"[assemble_video] shared manifest written -> {SHARED_AUDIO_MANIFEST}")
+    except Exception as exc:
+        print(f"[assemble_video] could not write shared manifest: {exc}")
 
     print(f"[assemble_video] validated output: {destination}")
     return state
