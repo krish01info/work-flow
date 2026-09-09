@@ -64,26 +64,35 @@ jobs:
             echo "::notice::assets/Anton-Regular.ttf not committed — pipeline will auto-download from Google Fonts"
           fi
 
-      - name: Run asset video pipeline
+      - name: Run YouTube Shorts pipeline
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
-          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
-          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
-          # Netscape-format cookies.txt content from a signed-in YouTube session.
-          # Without this, yt-dlp is frequently bot-blocked by YouTube on
-          # GitHub-hosted runner IPs, which is why music/captions/duration
-          # were silently missing before this fix. See README for how to export.
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
           set -euo pipefail
           echo "Running commit: $(git rev-parse HEAD)"
-          python -m py_compile asset_video_workflow.py
+          python -m py_compile youtube_workflow.py
           rm -f output_final_video/asset_final_video.mp4
           rm -f output_final_video/asset_final_video.rendering.mp4
-          python -u asset_video_workflow.py
+          python -u youtube_workflow.py
+
+      - name: Run Instagram Reels pipeline
+        continue-on-error: true   # don't fail the whole run if Instagram upload fails
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          set -euo pipefail
+          python -m py_compile instagram_workflow.py
+          rm -f output_final_video/asset_final_video.mp4
+          rm -f output_final_video/asset_final_video.rendering.mp4
+          python -u instagram_workflow.py
 
       - name: Remove temporary YouTube cookies
         if: always()
@@ -110,4 +119,4 @@ jobs:
             output_final_video/
             output_audio/
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: ignore
