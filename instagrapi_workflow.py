@@ -632,7 +632,16 @@ def _get_instagrapi_client() -> Client:
             cl = Client()
             cl.delay_range = [1, 3]
         except Exception as exc:
-            print(f"[instagrapi] session verify failed ({exc}) -- will do fresh login")
+            # Also try the value as a raw browser sessionid cookie
+            cl2 = Client()
+            cl2.delay_range = [1, 3]
+            try:
+                cl2.login_by_sessionid(session_b64.strip())
+                print("[instagrapi] logged in via raw sessionid cookie")
+                cl2.dump_settings(str(SESSION_FILE))
+                return cl2
+            except Exception as exc2:
+                print(f"[instagrapi] sessionid login also failed: {exc2}")
             cl = Client()
             cl.delay_range = [1, 3]
 
