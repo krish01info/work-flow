@@ -1,8 +1,8 @@
 # .github/workflows/generate-video.yml
 name: Generate & Upload Short Video
 stop here error
-// on:
-  schedule:
+#on:
+   # schedule:
     - cron: '0 */4 * * *'   # every 4 hours (6 uploads/day)
   workflow_dispatch: {}     # manual trigger from Actions tab
 
