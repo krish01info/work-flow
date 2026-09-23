@@ -322,6 +322,8 @@ def find_trending_audio(state: ReelState):
     # Strategy: pick the most trending track that also has a download_url
     # so we can mix audio locally AND attach it to Instagram via audio_id.
     # Trending = highest position in the API response (index 0 = most trending).
+    # Short tracks (e.g. 18s) are kept — if Meta returns them, they're likely viral.
+    # The video duration auto-adapts to match the music length.
     track_with_url = next(
         (t for t in tracks if t.get("download_url")),
         None
