@@ -1,0 +1,16 @@
+# Dependencies for instagram_workflow.py, instagrapi_workflow.py,
+# youtube_workflow.py, asset_video_workflow.py and related scripts.
+#
+# Install with:
+#   pip install -r requirements-workflow.txt
+#
+langgraph
+python-dotenv
+requests
+moviepy>=2.0
+faster-whisper
+google-auth
+google-auth-oauthlib
+google-api-python-client
+yt-dlp
+numpy

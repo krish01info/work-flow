@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 .env
 myenv/
+final_reel.mp4
+reel_tmp/

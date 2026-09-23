@@ -1,5 +1,5 @@
 # .github/workflows/generate-video.yml
-name: Generate & Upload Short Video
+name: Generate & Publish Instagram Reel
 
 on:
   schedule:
@@ -7,15 +7,15 @@ on:
   workflow_dispatch: {}     # manual trigger from Actions tab
 
 concurrency:
-  group: video-pipeline
+  group: reel-pipeline
   cancel-in-progress: false
 
 jobs:
-  generate-video:
+  build-and-publish-reel:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write   # needed for git push in persist-used-songs step
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -29,93 +29,56 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install system dependencies
+      - name: Install system dependencies (ffmpeg)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
           ffmpeg -version | head -1
-
-      - name: Install Deno (JS runtime for yt-dlp)
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-
-      - name: Upgrade yt-dlp to latest
-        run: pip install --upgrade yt-dlp
 
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install --prefer-binary -r requirements.txt
 
-      - name: Cache faster-whisper model
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: whisper-small-model-${{ runner.os }}
-
-      - name: Confirm required assets
+      - name: Confirm asset video exists
         run: |
           if [ ! -f "assets/the_transition_i_n_between_is.mp4" ]; then
             echo "::error::Asset video not found — commit assets/the_transition_i_n_between_is.mp4 to the repo"
             exit 1
           fi
-          if [ ! -f "assets/Anton-Regular.ttf" ]; then
-            echo "::notice::assets/Anton-Regular.ttf not committed — pipeline will auto-download from Google Fonts"
-          fi
+          echo "Asset video found: $(du -sh assets/the_transition_i_n_between_is.mp4)"
 
-      - name: Run YouTube Shorts pipeline
+      - name: Run Reel Builder
         env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          # Instagram / Meta
+          INSTAGRAM_USER_ID:      ${{ secrets.INSTAGRAM_USER_ID }}
+          META_ACCESS_TOKEN:      ${{ secrets.META_ACCESS_TOKEN }}
+
+          # Google Drive (for video hosting)
+          GOOGLE_CLIENT_ID:       ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET:   ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          DRIVE_REFRESH_TOKEN:    ${{ secrets.DRIVE_REFRESH_TOKEN }}
+
+          # Reel config (override defaults via secrets if needed)
+          ASSET_VIDEO:            assets/the_transition_i_n_between_is.mp4
+          OUTPUT_VIDEO:           final_reel.mp4
+          MUSIC_START_SECONDS:    "5.0"
+          LOOP_START_SECONDS:     "9.5"
+          REEL_MAX_DURATION:      "90"
+          PUBLISH_REEL:           "true"
+          INSTAGRAM_CAPTION:      ${{ secrets.INSTAGRAM_CAPTION }}
+          SHARE_TO_FEED:          "true"
         run: |
           set -euo pipefail
           echo "Running commit: $(git rev-parse HEAD)"
-          python -m py_compile youtube_workflow.py
-          rm -f output_final_video/asset_final_video.mp4
-          rm -f output_final_video/asset_final_video.rendering.mp4
-          python -u youtube_workflow.py
+          python -m py_compile reelbuilder.py
+          python -u reelbuilder.py
 
-      - name: Run Instagram Reels pipeline (instagrapi + licensed music)
-        continue-on-error: true
-        env:
-          INSTAGRAM_USERNAME:     ${{ secrets.INSTAGRAM_USERNAME }}
-          INSTAGRAM_PASSWORD:     ${{ secrets.INSTAGRAM_PASSWORD }}
-          INSTAGRAM_SESSION_JSON: ${{ secrets.INSTAGRAM_SESSION_JSON }}
-          YOUTUBE_COOKIES:        ${{ secrets.YOUTUBE_COOKIES }}
-        run: |
-          set -euo pipefail
-          pip install -q instagrapi
-          python -m py_compile instagrapi_workflow.py
-          rm -f output_final_video/asset_final_video.mp4
-          rm -f output_final_video/asset_final_video.rendering.mp4
-          python -u instagrapi_workflow.py
-
-      - name: Remove temporary YouTube cookies
-        if: always()
-        run: rm -f .ytdlp_cookies.txt
-
-      # Commit the updated used_songs.json so the next run picks a different song
-      - name: Persist used-songs tracker
-        if: always()
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f "assets/used_songs.json" ]; then
-            git add assets/used_songs.json
-            git diff --cached --quiet || git commit -m "chore: update used_songs.json [skip ci]"
-            git push
-          fi
-
-      - name: Upload artifacts (backup / debug)
+      - name: Upload final reel as artifact (backup / debug)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-video-${{ github.run_id }}
-          path: |
-            output_final_video/
-            output_audio/
+          name: final-reel-${{ github.run_id }}
+          path: final_reel.mp4
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: ignore

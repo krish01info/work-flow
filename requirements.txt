@@ -1,10 +1,7 @@
+# reelbuilder.py dependencies
 langgraph
 python-dotenv
 requests
-moviepy>=2.0
-faster-whisper
 google-auth
-google-auth-oauthlib
+google-auth-httplib2
 google-api-python-client
-yt-dlp
-numpy
