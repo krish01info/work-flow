@@ -1,4 +1,3 @@
-
 # .github/workflows/generate-video.yml
 name: Generate & Publish Instagram Reel
 
@@ -69,6 +68,11 @@ jobs:
           PUBLISH_REEL:           "true"
           INSTAGRAM_CAPTION:      ${{ secrets.INSTAGRAM_CAPTION }}
           SHARE_TO_FEED:          "true"
+
+          # Video dimensions — Instagram Reels must be 9:16 portrait
+          VIDEO_WIDTH:            "1080"
+          VIDEO_HEIGHT:           "1920"
+          VIDEO_FPS:              "30"
         run: |
           set -euo pipefail
           echo "Running commit: $(git rev-parse HEAD)"

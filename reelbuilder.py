@@ -147,6 +147,8 @@ class ReelState(TypedDict, total=False):
     container_id: str
     media_id: str
 
+    caption: str
+
     status: str
     error: str
 
@@ -401,6 +403,120 @@ def find_trending_audio(state: ReelState):
 
 # ============================================================
 # NODE 2
+# GENERATE SHORT TRENDING CAPTION
+# ============================================================
+
+# Seed hashtag queries to search on Meta (music / song niche)
+_HASHTAG_SEEDS = [
+    "songs", "music", "viral", "reels", "trending",
+    "fyp", "explorepage", "newmusic",
+]
+
+# Always append these regardless of API result
+_FIXED_TAGS = ["#reels", "#songs", "#viral"]
+
+
+def _fetch_hashtag_id(tag: str) -> Optional[str]:
+    """Return Meta hashtag object ID for a given tag name, or None."""
+    try:
+        result = graph_get(
+            "/ig_hashtag_search",
+            {
+                "user_id": IG_USER_ID,
+                "q": tag,
+            },
+        )
+        data = result.get("data", [])
+        if data and isinstance(data, list):
+            return data[0].get("id")
+    except Exception as exc:
+        print(f"  hashtag search failed for '{tag}': {exc}")
+    return None
+
+
+def _fetch_hashtag_media_count(hashtag_id: str) -> int:
+    """Return media_count for a hashtag ID, or 0 on error."""
+    try:
+        result = graph_get(
+            f"/{hashtag_id}",
+            {"fields": "name,media_count"},
+        )
+        return int(result.get("media_count") or 0)
+    except Exception:
+        return 0
+
+
+def _build_short_hook(audio_title: str) -> str:
+    """
+    Build a ≤7-word hook from the audio title.
+    e.g. 'Blinding Lights' -> '🎵 Blinding Lights on repeat ✨'
+    """
+    # Strip featured-artist suffixes like '(feat. ...)'  / '[prod. ...]'
+    import re
+    clean = re.sub(
+        r"[\(\[][^)\]]*[\)\]]",
+        "",
+        audio_title,
+    ).strip()
+
+    words = clean.split()
+
+    # Keep at most 4 title words so hook stays within 6-7 total
+    title_part = " ".join(words[:4])
+
+    hook = f"🎵 {title_part} on repeat ✨"
+
+    return hook
+
+
+def generate_caption(state: ReelState):
+
+    print("\n=== GENERATE CAPTION ===")
+
+    audio_title = state.get("audio_title", "")
+
+    # --- short hook (≤7 words) ---
+    hook = _build_short_hook(audio_title)
+    print(f"  Hook: {hook}")
+
+    # --- fetch trending hashtags from Meta ---
+    tag_data: list[tuple[int, str]] = []  # (media_count, "#name")
+
+    for seed in _HASHTAG_SEEDS:
+        hid = _fetch_hashtag_id(seed)
+        if not hid:
+            continue
+        count = _fetch_hashtag_media_count(hid)
+        tag_data.append((count, f"#{seed}"))
+        print(f"  #{seed}: {count:,} posts")
+
+    # Sort by media_count descending, keep top 4
+    tag_data.sort(key=lambda x: x[0], reverse=True)
+    top_tags = [t for _, t in tag_data[:4]]
+
+    # Merge with fixed tags, deduplicate, keep order
+    all_tags: list[str] = []
+    seen: set[str] = set()
+    for t in top_tags + _FIXED_TAGS:
+        if t not in seen:
+            all_tags.append(t)
+            seen.add(t)
+
+    hashtags = " ".join(all_tags)
+
+    # Final caption: hook + blank line + hashtags
+    caption = f"{hook}\n\n{hashtags}"
+
+    print(f"\n  Caption:\n{caption}")
+
+    return {
+        **state,
+        "caption": caption,
+    }
+
+
+# ============================================================
+# NODE 3
 # CALCULATE FINAL VIDEO LENGTH
 # ============================================================
 
@@ -515,6 +631,9 @@ def build_video(state: ReelState):
         # Normalize video (keep asset audio track for first segment)
         # --------------------------------------------------------
 
+        # Scale to exact portrait (9:16) dimensions for Instagram Reels.
+        # 'trunc(ow/2)*2' and 'trunc(oh/2)*2' guarantee even pixel values
+        # required by libx264/yuv420p — odd dimensions cause encoder errors.
         run([
             "ffmpeg", "-y",
             "-i", asset,
@@ -522,7 +641,9 @@ def build_video(state: ReelState):
             (
                 f"scale={WIDTH}:{HEIGHT}:"
                 "force_original_aspect_ratio=decrease,"
-                f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2"
+                f"pad={WIDTH}:{HEIGHT}:"
+                "trunc((ow-iw)/2)*2:trunc((oh-ih)/2)*2,"
+                "setsar=1"
             ),
             "-r", str(FPS),
             "-c:v", "libx264",
@@ -648,6 +769,8 @@ def build_video(state: ReelState):
         # Mux video + audio into final output, trimmed to final_duration
         # --------------------------------------------------------
 
+        # Final mux: enforce exact 1080x1920 portrait output for Instagram Reels.
+        # Explicit scale here catches any dimension drift from the concat step.
         run([
             "ffmpeg", "-y",
             "-i", str(concatenated),
@@ -655,6 +778,14 @@ def build_video(state: ReelState):
             "-t", str(final_duration),
             "-map", "0:v:0",
             "-map", "1:a:0",
+            "-vf",
+            (
+                f"scale={WIDTH}:{HEIGHT}:"
+                "force_original_aspect_ratio=decrease,"
+                f"pad={WIDTH}:{HEIGHT}:"
+                "trunc((ow-iw)/2)*2:trunc((oh-ih)/2)*2,"
+                "setsar=1"
+            ),
             "-c:v", "libx264",
             "-preset", "medium",
             "-pix_fmt", "yuv420p",
@@ -824,7 +955,8 @@ def create_reel_container(state: ReelState):
     params = {
         "media_type": "REELS",
         "video_url": state["video_public_url"],
-        "caption": CAPTION,
+        # Use dynamically generated caption; fall back to env var CAPTION
+        "caption": state.get("caption") or CAPTION,
         "share_to_feed": str(
             SHARE_TO_FEED
         ).lower(),
@@ -1045,8 +1177,18 @@ def build_graph():
         "find_trending_audio"
     )
 
+    graph.add_node(
+        "generate_caption",
+        generate_caption,
+    )
+
     graph.add_edge(
         "find_trending_audio",
+        "generate_caption",
+    )
+
+    graph.add_edge(
+        "generate_caption",
         "calculate_video_duration",
     )
 
