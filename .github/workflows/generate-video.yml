@@ -1,414 +1,85 @@
-```yaml
-# .github/workflows/generate-video.yml
 
+# .github/workflows/generate-video.yml
 name: Generate & Publish Instagram Reel
 
 on:
   schedule:
-    # Every 4 hours = 6 runs/day
-    - cron: "0 */4 * * *"
-
-  # Allow manual execution from GitHub Actions
-  workflow_dispatch:
+    - cron: '0 */4 * * *'   # every 4 hours (6 uploads/day)
+  workflow_dispatch: {}     # manual trigger from Actions tab
 
 concurrency:
   group: reel-pipeline
   cancel-in-progress: false
 
 jobs:
-
   build-and-publish-reel:
-
     runs-on: ubuntu-latest
-
-    # Prevent FFmpeg / upload / Meta processing from
-    # running indefinitely
     timeout-minutes: 45
-
     permissions:
       contents: write
 
     steps:
-
-      # ==========================================================
-      # 1. CHECKOUT
-      # ==========================================================
-
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-
-      # ==========================================================
-      # 2. PYTHON
-      # ==========================================================
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
+          python-version: '3.11'
+          cache: 'pip'
 
-
-      # ==========================================================
-      # 3. SYSTEM DEPENDENCIES
-      # ==========================================================
-
-      - name: Install FFmpeg
+      - name: Install system dependencies (ffmpeg)
         run: |
-          set -e
-
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-
-          echo "FFmpeg version:"
           ffmpeg -version | head -1
-
-          echo
-          echo "FFprobe version:"
-          ffprobe -version | head -1
-
-
-      # ==========================================================
-      # 4. PYTHON DEPENDENCIES
-      # ==========================================================
 
       - name: Install Python dependencies
         run: |
-          set -e
-
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade setuptools wheel
-
-          # Upgrade networking / Google libraries
-          # to avoid old SSL/client combinations.
-          python -m pip install --upgrade \
-            requests \
-            urllib3 \
-            certifi \
-            google-auth \
-            google-api-python-client \
-            google-auth-httplib2 \
-            google-auth-oauthlib
-
-          # Install project dependencies
-          python -m pip install --prefer-binary -r requirements.txt
-
-
-      # ==========================================================
-      # 5. DEBUG PYTHON / SSL ENVIRONMENT
-      # ==========================================================
-
-      - name: Verify Python and SSL
-        run: |
-          set -e
-
-          echo "=========================================="
-          echo "PYTHON"
-          echo "=========================================="
-
-          python --version
-          python -c "import sys; print(sys.executable)"
-
-          echo
-          echo "=========================================="
-          echo "OPENSSL"
-          echo "=========================================="
-
-          python -c "import ssl; print(ssl.OPENSSL_VERSION)"
-
-          echo
-          echo "=========================================="
-          echo "REQUESTS"
-          echo "=========================================="
-
-          python -c "import requests; print('requests:', requests.__version__)"
-
-          echo
-          echo "=========================================="
-          echo "CERTIFI"
-          echo "=========================================="
-
-          python -c "import certifi; print(certifi.where())"
-
-          echo
-          echo "=========================================="
-          echo "GOOGLE AUTH"
-          echo "=========================================="
-
-          python -c "import google.auth; print('google-auth:', google.auth.__version__)"
-
-
-      # ==========================================================
-      # 6. CHECK ASSET
-      # ==========================================================
+          pip install --upgrade pip
+          pip install --prefer-binary -r requirements.txt
 
       - name: Confirm asset video exists
         run: |
-          set -e
-
-          ASSET="assets/the_transition_i_n_between_is.mp4"
-
-          if [ ! -f "$ASSET" ]; then
-            echo "::error::Asset video not found:"
-            echo "$ASSET"
+          if [ ! -f "assets/the_transition_i_n_between_is.mp4" ]; then
+            echo "::error::Asset video not found — commit assets/the_transition_i_n_between_is.mp4 to the repo"
             exit 1
           fi
-
-          echo "Asset video found:"
-          ls -lh "$ASSET"
-
-          echo
-          echo "Asset size:"
-          du -sh "$ASSET"
-
-
-      # ==========================================================
-      # 7. CHECK FFMPEG INPUT
-      # ==========================================================
-
-      - name: Inspect source video
-        run: |
-          set -e
-
-          ffprobe \
-            -v error \
-            -show_entries \
-            stream=index,codec_name,width,height,r_frame_rate,duration \
-            -show_entries \
-            format=duration,size \
-            -of default=noprint_wrappers=1 \
-            assets/the_transition_i_n_between_is.mp4
-
-
-      # ==========================================================
-      # 8. COMPILE PYTHON
-      # ==========================================================
-
-      - name: Validate Reel Builder
-        run: |
-          set -e
-
-          python -m py_compile reelbuilder.py
-
-          echo "reelbuilder.py syntax OK"
-
-
-      # ==========================================================
-      # 9. RUN REEL BUILDER
-      # ==========================================================
+          echo "Asset video found: $(du -sh assets/the_transition_i_n_between_is.mp4)"
 
       - name: Run Reel Builder
         env:
+          # Instagram / Meta
+          INSTAGRAM_USER_ID:      ${{ secrets.INSTAGRAM_USER_ID }}
+          META_ACCESS_TOKEN:      ${{ secrets.META_ACCESS_TOKEN }}
 
-          # ------------------------------------------------------
-          # INSTAGRAM / META
-          # ------------------------------------------------------
+          # Google Drive (for video hosting)
+          GOOGLE_CLIENT_ID:       ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET:   ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          DRIVE_REFRESH_TOKEN:    ${{ secrets.DRIVE_REFRESH_TOKEN }}
 
-          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
-
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-
-
-          # ------------------------------------------------------
-          # GOOGLE DRIVE
-          # ------------------------------------------------------
-
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-
-          DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
-
-
-          # ------------------------------------------------------
-          # VIDEO INPUT / OUTPUT
-          # ------------------------------------------------------
-
-          ASSET_VIDEO: assets/the_transition_i_n_between_is.mp4
-
-          OUTPUT_VIDEO: final_reel.mp4
-
-
-          # ------------------------------------------------------
-          # INSTAGRAM REEL DIMENSIONS
-          # ------------------------------------------------------
-
-          VIDEO_WIDTH: "1080"
-
-          VIDEO_HEIGHT: "1920"
-
-          VIDEO_FPS: "30"
-
-
-          # ------------------------------------------------------
-          # VIDEO TIMING
-          # ------------------------------------------------------
-
-          # First 5 seconds use original asset audio.
-          # Instagram catalog music starts at second 5.
-
-          MUSIC_START_SECONDS: "5.0"
-
-
-          # Repeat video from 9.5 seconds onward
-          # if the selected music is longer than the asset.
-
-          LOOP_START_SECONDS: "9.5"
-
-
-          # Instagram Reel maximum configured duration.
-
-          REEL_MAX_DURATION: "90"
-
-
-          # ------------------------------------------------------
-          # INSTAGRAM PUBLISHING
-          # ------------------------------------------------------
-
-          PUBLISH_REEL: "true"
-
-          SHARE_TO_FEED: "true"
-
-          INSTAGRAM_CAPTION: ${{ secrets.INSTAGRAM_CAPTION }}
-
-
+          # Reel config (override defaults via secrets if needed)
+          ASSET_VIDEO:            assets/the_transition_i_n_between_is.mp4
+          OUTPUT_VIDEO:           final_reel.mp4
+          MUSIC_START_SECONDS:    "5.0"
+          LOOP_START_SECONDS:     "9.5"
+          REEL_MAX_DURATION:      "90"
+          PUBLISH_REEL:           "true"
+          INSTAGRAM_CAPTION:      ${{ secrets.INSTAGRAM_CAPTION }}
+          SHARE_TO_FEED:          "true"
         run: |
           set -euo pipefail
-
-          echo
-          echo "=========================================="
-          echo "STARTING REEL BUILDER"
-          echo "=========================================="
-
-          echo
-          echo "Git commit:"
-          git rev-parse HEAD
-
-          echo
-          echo "Python:"
-          python --version
-
-          echo
-          echo "FFmpeg:"
-          ffmpeg -version | head -1
-
-          echo
-          echo "=========================================="
-          echo "REEL CONFIGURATION"
-          echo "=========================================="
-
-          echo "Resolution: 1080x1920"
-          echo "Aspect ratio: 9:16"
-          echo "FPS: 30"
-          echo "Music start: 5 seconds"
-          echo "Loop start: 9.5 seconds"
-          echo "Maximum duration: 90 seconds"
-          echo "Publishing: ENABLED"
-
-          echo
-          echo "=========================================="
-          echo "RUNNING PYTHON"
-          echo "=========================================="
-
+          echo "Running commit: $(git rev-parse HEAD)"
+          python -m py_compile reelbuilder.py
           python -u reelbuilder.py
 
-
-      # ==========================================================
-      # 10. VERIFY GENERATED VIDEO
-      # ==========================================================
-
-      - name: Verify final Reel
-        if: always()
-        run: |
-
-          if [ ! -f "final_reel.mp4" ]; then
-            echo "::warning::final_reel.mp4 was not generated."
-            exit 0
-          fi
-
-          echo
-          echo "=========================================="
-          echo "FINAL REEL"
-          echo "=========================================="
-
-          ls -lh final_reel.mp4
-
-          echo
-          echo "File size:"
-          du -h final_reel.mp4
-
-          echo
-          echo "Video information:"
-
-          ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries \
-            stream=codec_name,width,height,r_frame_rate,pix_fmt,duration \
-            -show_entries \
-            format=duration,size \
-            -of default=noprint_wrappers=1 \
-            final_reel.mp4
-
-
-      # ==========================================================
-      # 11. UPLOAD FINAL VIDEO AS GITHUB ARTIFACT
-      # ==========================================================
-
-      # This is ONLY a backup/debug copy.
-      #
-      # It is NOT the public video URL used by Meta.
-
-      - name: Upload final Reel as artifact
+      - name: Upload final reel as artifact (backup / debug)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-
           name: final-reel-${{ github.run_id }}
-
           path: final_reel.mp4
-
           retention-days: 7
-
           if-no-files-found: ignore
-
-
-      # ==========================================================
-      # 12. FAILURE INFORMATION
-      # ==========================================================
-
-      - name: Print failure information
-        if: failure()
-        run: |
-
-          echo
-          echo "=========================================="
-          echo "REEL WORKFLOW FAILED"
-          echo "=========================================="
-
-          echo
-          echo "Repository:"
-          pwd
-
-          echo
-          echo "Files:"
-          ls -lah
-
-          echo
-          echo "Generated video:"
-          if [ -f final_reel.mp4 ]; then
-            ls -lh final_reel.mp4
-          else
-            echo "final_reel.mp4 does not exist"
-          fi
-
-          echo
-          echo "FFmpeg:"
-          ffmpeg -version | head -1
-
-          echo
-          echo "Python:"
-          python --version
-```
