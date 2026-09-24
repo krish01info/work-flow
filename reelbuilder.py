@@ -632,17 +632,17 @@ def build_video(state: ReelState):
         # --------------------------------------------------------
 
         # Scale to exact portrait (9:16) dimensions for Instagram Reels.
-        # 'trunc(ow/2)*2' and 'trunc(oh/2)*2' guarantee even pixel values
-        # required by libx264/yuv420p — odd dimensions cause encoder errors.
+        # 'force_original_aspect_ratio=increase' scales up so both dimensions
+        # meet the target, then 'crop' center-crops the overshoot.
+        # Result: frame is always 100% filled — no black bars.
         run([
             "ffmpeg", "-y",
             "-i", asset,
             "-vf",
             (
                 f"scale={WIDTH}:{HEIGHT}:"
-                "force_original_aspect_ratio=decrease,"
-                f"pad={WIDTH}:{HEIGHT}:"
-                "trunc((ow-iw)/2)*2:trunc((oh-ih)/2)*2,"
+                "force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT},"
                 "setsar=1"
             ),
             "-r", str(FPS),
@@ -770,7 +770,7 @@ def build_video(state: ReelState):
         # --------------------------------------------------------
 
         # Final mux: enforce exact 1080x1920 portrait output for Instagram Reels.
-        # Explicit scale here catches any dimension drift from the concat step.
+        # scale+crop fills the frame completely — no black bars.
         run([
             "ffmpeg", "-y",
             "-i", str(concatenated),
@@ -781,9 +781,8 @@ def build_video(state: ReelState):
             "-vf",
             (
                 f"scale={WIDTH}:{HEIGHT}:"
-                "force_original_aspect_ratio=decrease,"
-                f"pad={WIDTH}:{HEIGHT}:"
-                "trunc((ow-iw)/2)*2:trunc((oh-ih)/2)*2,"
+                "force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT},"
                 "setsar=1"
             ),
             "-c:v", "libx264",
