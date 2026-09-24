@@ -34,17 +34,21 @@ OUTPUT_VIDEO = os.getenv("OUTPUT_VIDEO", "final_reel.mp4")
 
 CAPTION = os.getenv("INSTAGRAM_CAPTION", "")
 
-# How much of the original asset stays before catalog music.
+# Music starts after this many seconds
 MUSIC_START_SECONDS = float(
     os.getenv("MUSIC_START_SECONDS", "5.0")
 )
 
-# The section that should loop forever after the original asset ends.
+# Loop starts from this point in the original asset
 LOOP_START_SECONDS = float(
     os.getenv("LOOP_START_SECONDS", "9.5")
 )
 
-# Output video settings
+# ============================================================
+# VIDEO OUTPUT SETTINGS
+# ============================================================
+
+# Instagram Reel = 9:16
 WIDTH = int(os.getenv("VIDEO_WIDTH", "1080"))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1920"))
 FPS = int(os.getenv("VIDEO_FPS", "30"))
@@ -59,29 +63,14 @@ SHARE_TO_FEED = os.getenv(
     "false"
 ).lower() == "true"
 
-# IMPORTANT:
-# Keep false until you have confirmed the exact Meta audio
-# attachment parameter available to your app/version.
 PUBLISH_REEL = (
     os.getenv("PUBLISH_REEL", "false").lower() == "true"
 )
 
-# Public URL for the generated video.
-#
-# Example:
-# https://your-public-host.com/final_reel.mp4
-#
-# Meta needs to be able to fetch this URL.
+# Public URL for generated video
 VIDEO_PUBLIC_URL = os.getenv("VIDEO_PUBLIC_URL")
 
-# Optional configurable audio attachment field.
-#
-# DO NOT assume this is valid.
-#
-# Example only:
-# META_AUDIO_CREATE_FIELD=audio_id
-#
-# The code will only use this if explicitly supplied.
+# Optional configurable audio attachment field
 META_AUDIO_CREATE_FIELD = os.getenv(
     "META_AUDIO_CREATE_FIELD",
     ""
@@ -104,6 +93,7 @@ def require_env(name: str) -> str:
 
 
 def validate_environment():
+
     missing = []
 
     for name in [
@@ -162,6 +152,7 @@ def graph_get(
     path: str,
     params: Optional[Dict[str, Any]] = None
 ):
+
     params = params or {}
 
     params["access_token"] = META_ACCESS_TOKEN
@@ -176,6 +167,7 @@ def graph_get(
 
     try:
         data = response.json()
+
     except Exception:
         data = {
             "raw": response.text
@@ -194,6 +186,7 @@ def graph_post(
     path: str,
     data: Optional[Dict[str, Any]] = None
 ):
+
     data = data or {}
 
     data["access_token"] = META_ACCESS_TOKEN
@@ -208,6 +201,7 @@ def graph_post(
 
     try:
         result = response.json()
+
     except Exception:
         result = {
             "raw": response.text
@@ -227,6 +221,7 @@ def graph_post(
 # ============================================================
 
 def run(cmd):
+
     print("\n$", " ".join(map(str, cmd)))
 
     result = subprocess.run(
@@ -237,6 +232,7 @@ def run(cmd):
     )
 
     if result.returncode != 0:
+
         print(result.stderr)
 
         raise RuntimeError(
@@ -290,19 +286,15 @@ def find_trending_audio(state: ReelState):
         )
     )
 
-    # Meta's /ig_audio response wraps tracks under the "audio" key.
-    # Fall back to "data" or "items" for forward compatibility.
     raw = (
         result.get("audio")
         or result.get("data")
         or result.get("items")
     )
 
-    # Flatten: if the response itself is a list, use it directly.
     if raw is None and isinstance(result, list):
         raw = result
 
-    # Keep only valid track dicts that have an audio identifier.
     tracks = [
         item
         for item in (raw or [])
@@ -319,29 +311,31 @@ def find_trending_audio(state: ReelState):
             f"Raw response: {json.dumps(result, indent=2)}"
         )
 
-    # Strategy: pick the most trending track that also has a download_url
-    # so we can mix audio locally AND attach it to Instagram via audio_id.
-    # Trending = highest position in the API response (index 0 = most trending).
-    # Short tracks (e.g. 18s) are kept — if Meta returns them, they're likely viral.
-    # The video duration auto-adapts to match the music length.
     track_with_url = next(
-        (t for t in tracks if t.get("download_url")),
+        (
+            t
+            for t in tracks
+            if t.get("download_url")
+        ),
         None
     )
 
-    # Use the trending track with download_url; fall back to first track.
     track = track_with_url or tracks[0]
 
     if not track.get("download_url"):
+
         print(
             "WARNING: Selected track has no download_url. "
             "Music portion in local video will be silent, "
             "but audio_id will still be attached on Instagram."
         )
 
-    # Log trending rank
     rank = tracks.index(track) + 1
-    print(f"  Trending rank: #{rank} of {len(tracks)} returned")
+
+    print(
+        f"  Trending rank: #{rank} "
+        f"of {len(tracks)} returned"
+    )
 
     audio_id = (
         track.get("id")
@@ -365,25 +359,26 @@ def find_trending_audio(state: ReelState):
         f"\n  Title: {title}"
     )
 
-    # FIX 1:
-    # Meta's catalog response uses "duration_in_ms" not "duration_ms".
-    # Check all known field names to be safe.
     duration_ms = (
         track.get("duration_in_ms")
         or track.get("duration_ms")
     )
 
-    duration_s = (
-        track.get("duration")
-    )
+    duration_s = track.get("duration")
 
     if duration_ms is not None:
+
         duration = float(duration_ms) / 1000.0
+
     elif duration_s is not None:
+
         duration = float(duration_s)
+
     else:
+
         raise RuntimeError(
-            f"No duration found in track: {json.dumps(track, indent=2)}"
+            f"No duration found in track: "
+            f"{json.dumps(track, indent=2)}"
         )
 
     print(
@@ -404,8 +399,12 @@ def find_trending_audio(state: ReelState):
 # CALCULATE FINAL VIDEO LENGTH
 # ============================================================
 
-# Instagram Reel maximum duration in seconds
-REEL_MAX_DURATION = float(os.getenv("REEL_MAX_DURATION", "90"))
+REEL_MAX_DURATION = float(
+    os.getenv(
+        "REEL_MAX_DURATION",
+        "90"
+    )
+)
 
 
 def calculate_video_duration(state: ReelState):
@@ -418,36 +417,48 @@ def calculate_video_duration(state: ReelState):
 
     audio_duration = state["audio_duration"]
 
-    # Target: asset intro + catalog audio, capped at reel max.
-    raw_duration = MUSIC_START_SECONDS + audio_duration
+    raw_duration = (
+        MUSIC_START_SECONDS
+        + audio_duration
+    )
 
-    # Instagram Reels max = 90 seconds.
-    final_duration = min(raw_duration, REEL_MAX_DURATION)
+    final_duration = min(
+        raw_duration,
+        REEL_MAX_DURATION
+    )
 
     print(
         f"Asset duration:       {duration:.3f}s"
     )
 
     print(
-        f"Music starts:         {MUSIC_START_SECONDS:.3f}s"
+        f"Music starts:         "
+        f"{MUSIC_START_SECONDS:.3f}s"
     )
 
     print(
-        f"Catalog audio:        {audio_duration:.3f}s"
+        f"Catalog audio:        "
+        f"{audio_duration:.3f}s"
     )
 
     print(
-        f"Raw duration:         {raw_duration:.3f}s"
+        f"Raw duration:         "
+        f"{raw_duration:.3f}s"
     )
 
     print(
-        f"Final video duration: {final_duration:.3f}s  (capped at {REEL_MAX_DURATION}s for Reels)"
+        f"Final video duration: "
+        f"{final_duration:.3f}s "
+        f"(capped at "
+        f"{REEL_MAX_DURATION}s)"
     )
 
     if duration < MUSIC_START_SECONDS:
+
         raise RuntimeError(
             f"Asset is only {duration:.2f}s long, "
-            f"but music starts at {MUSIC_START_SECONDS:.2f}s."
+            f"but music starts at "
+            f"{MUSIC_START_SECONDS:.2f}s."
         )
 
     return {
@@ -462,18 +473,34 @@ def calculate_video_duration(state: ReelState):
 # BUILD VIDEO
 # ============================================================
 
-def download_catalog_audio(url: str, dest: Path) -> None:
-    """Download the catalog audio MP4 from Meta CDN."""
-    print(f"\nDownloading catalog audio...")
+def download_catalog_audio(
+    url: str,
+    dest: Path
+) -> None:
 
-    response = requests.get(url, stream=True, timeout=120)
+    print(
+        "\nDownloading catalog audio..."
+    )
+
+    response = requests.get(
+        url,
+        stream=True,
+        timeout=120
+    )
+
     response.raise_for_status()
 
     with open(dest, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024 * 256):
+
+        for chunk in response.iter_content(
+            chunk_size=1024 * 256
+        ):
+
             f.write(chunk)
 
-    print(f"Catalog audio saved: {dest}")
+    print(
+        f"Catalog audio saved: {dest}"
+    )
 
 
 def build_video(state: ReelState):
@@ -484,199 +511,482 @@ def build_video(state: ReelState):
     output = state["output_video"]
 
     final_duration = state["final_duration"]
+
     loop_start = LOOP_START_SECONDS
     asset_duration = state["asset_duration"]
 
     if loop_start >= asset_duration:
+
         raise RuntimeError(
-            f"LOOP_START_SECONDS={loop_start} is beyond "
+            f"LOOP_START_SECONDS={loop_start} "
+            f"is beyond "
             f"asset duration={asset_duration}"
         )
 
     if loop_start < MUSIC_START_SECONDS:
+
         raise RuntimeError(
-            f"LOOP_START_SECONDS={loop_start} must be >= "
-            f"MUSIC_START_SECONDS={MUSIC_START_SECONDS}. "
-            f"The loop segment must start after the music crossover point."
+            f"LOOP_START_SECONDS={loop_start} "
+            f"must be >= "
+            f"MUSIC_START_SECONDS="
+            f"{MUSIC_START_SECONDS}. "
+            f"The loop segment must start "
+            f"after the music crossover point."
         )
 
     temp_dir = Path("reel_tmp")
-    temp_dir.mkdir(parents=True, exist_ok=True)
 
-    normalized      = temp_dir / "normalized.mp4"
-    loop_segment    = temp_dir / "loop_segment.mp4"
-    catalog_audio   = temp_dir / "catalog_audio.mp4"
-    asset_audio_seg = temp_dir / "asset_audio.aac"
-    mixed_audio     = temp_dir / "mixed_audio.aac"
+    temp_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    normalized = (
+        temp_dir / "normalized.mp4"
+    )
+
+    loop_segment = (
+        temp_dir / "loop_segment.mp4"
+    )
+
+    catalog_audio = (
+        temp_dir / "catalog_audio.mp4"
+    )
+
+    asset_audio_seg = (
+        temp_dir / "asset_audio.aac"
+    )
+
+    mixed_audio = (
+        temp_dir / "mixed_audio.aac"
+    )
 
     try:
 
-        # --------------------------------------------------------
-        # Normalize video (keep asset audio track for first segment)
-        # --------------------------------------------------------
+        # ====================================================
+        # NORMALIZE VIDEO
+        #
+        # FORCE EXACTLY:
+        # 1080 x 1920
+        # 9:16
+        #
+        # The video is scaled UP enough to fill the frame
+        # and then cropped.
+        # ====================================================
+
+        print(
+            f"\nNormalizing video to "
+            f"{WIDTH}x{HEIGHT} ({WIDTH/HEIGHT:.4f}:1)"
+        )
 
         run([
-            "ffmpeg", "-y",
-            "-i", asset,
+            "ffmpeg",
+            "-y",
+
+            "-i",
+            asset,
+
             "-vf",
             (
                 f"scale={WIDTH}:{HEIGHT}:"
-                "force_original_aspect_ratio=decrease,"
-                f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2"
+                "force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT}"
             ),
-            "-r", str(FPS),
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-movflags", "+faststart",
+
+            "-r",
+            str(FPS),
+
+            "-c:v",
+            "libx264",
+
+            "-preset",
+            "medium",
+
+            "-pix_fmt",
+            "yuv420p",
+
+            "-c:a",
+            "aac",
+
+            "-b:a",
+            "192k",
+
+            "-movflags",
+            "+faststart",
+
             str(normalized),
         ])
 
-        # --------------------------------------------------------
-        # Extract loop segment (video only — audio handled separately)
-        # --------------------------------------------------------
 
-        loop_duration = asset_duration - loop_start
+        # ====================================================
+        # EXTRACT LOOP SEGMENT
+        # ====================================================
+
+        loop_duration = (
+            asset_duration
+            - loop_start
+        )
 
         run([
-            "ffmpeg", "-y",
-            "-ss", str(loop_start),
-            "-i", str(normalized),
-            "-t", str(loop_duration),
+            "ffmpeg",
+            "-y",
+
+            "-ss",
+            str(loop_start),
+
+            "-i",
+            str(normalized),
+
+            "-t",
+            str(loop_duration),
+
             "-an",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
+
+            "-c:v",
+            "libx264",
+
+            "-preset",
+            "medium",
+
+            "-pix_fmt",
+            "yuv420p",
+
+            "-r",
+            str(FPS),
+
             str(loop_segment),
         ])
 
-        # --------------------------------------------------------
-        # Repeat loop segment to cover final_duration
-        # --------------------------------------------------------
 
-        remaining = max(0.0, final_duration - asset_duration)
+        # ====================================================
+        # REPEAT LOOP SEGMENT
+        # ====================================================
+
+        remaining = max(
+            0.0,
+            final_duration - asset_duration
+        )
+
         repeat_count = (
-            math.ceil(remaining / loop_duration)
+            math.ceil(
+                remaining / loop_duration
+            )
             if remaining > 0
             else 0
         )
 
-        concat_files = temp_dir / "concat.txt"
-        with open(concat_files, "w", encoding="utf-8") as f:
-            f.write(f"file '{normalized.resolve()}'\n")
-            for _ in range(repeat_count):
-                f.write(f"file '{loop_segment.resolve()}'\n")
+        print(
+            f"\nRemaining duration: "
+            f"{remaining:.3f}s"
+        )
 
-        concatenated = temp_dir / "concatenated.mp4"
+        print(
+            f"Loop duration: "
+            f"{loop_duration:.3f}s"
+        )
+
+        print(
+            f"Loop repetitions: "
+            f"{repeat_count}"
+        )
+
+        concat_files = (
+            temp_dir / "concat.txt"
+        )
+
+        with open(
+            concat_files,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(
+                f"file '{normalized.resolve()}'\n"
+            )
+
+            for _ in range(repeat_count):
+
+                f.write(
+                    f"file '{loop_segment.resolve()}'\n"
+                )
+
+        concatenated = (
+            temp_dir / "concatenated.mp4"
+        )
+
         run([
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_files),
-            "-c", "copy",
+            "ffmpeg",
+            "-y",
+
+            "-f",
+            "concat",
+
+            "-safe",
+            "0",
+
+            "-i",
+            str(concat_files),
+
+            "-c",
+            "copy",
+
             str(concatenated),
         ])
 
-        # --------------------------------------------------------
-        # Download catalog audio from Meta CDN
-        # --------------------------------------------------------
 
-        catalog_download_url = state["audio_metadata"].get("download_url")
+        # ====================================================
+        # DOWNLOAD CATALOG AUDIO
+        # ====================================================
+
+        catalog_download_url = (
+            state["audio_metadata"]
+            .get("download_url")
+        )
 
         if catalog_download_url:
-            download_catalog_audio(catalog_download_url, catalog_audio)
+
+            download_catalog_audio(
+                catalog_download_url,
+                catalog_audio
+            )
+
         else:
-            # No download URL: use silence for the music portion
-            print("WARNING: No download_url for catalog audio. Music portion will be silent.")
+
+            print(
+                "WARNING: No download_url "
+                "for catalog audio."
+            )
+
             catalog_audio = None
 
-        # --------------------------------------------------------
-        # Build audio track for the video file:
-        #   0 -> MUSIC_START_SECONDS : original asset audio
-        #   MUSIC_START_SECONDS -> final_duration : silence
-        #
-        # Why silence instead of catalog music?
-        # On Instagram, audio_configuration plays the catalog track.
-        # Setting video_volume=100 lets Instagram mix this embedded audio
-        # (asset clip sound for 5s, then silence) with the catalog music.
-        # Result on Instagram: 5s asset audio + catalog, then catalog only.
-        # --------------------------------------------------------
 
-        # Extract asset audio for the intro segment
+        # ====================================================
+        # BUILD AUDIO
+        #
+        # 0 -> 5 sec:
+        # original asset audio
+        #
+        # 5 sec -> end:
+        # silence in MP4
+        #
+        # Instagram catalog audio is attached
+        # separately through Meta.
+        # ====================================================
+
         run([
-            "ffmpeg", "-y",
-            "-i", str(normalized),
-            "-t", str(MUSIC_START_SECONDS),
+            "ffmpeg",
+            "-y",
+
+            "-i",
+            str(normalized),
+
+            "-t",
+            str(MUSIC_START_SECONDS),
+
             "-vn",
-            "-acodec", "aac",
-            "-b:a", "192k",
+
+            "-acodec",
+            "aac",
+
+            "-b:a",
+            "192k",
+
             str(asset_audio_seg),
         ])
 
-        music_duration = final_duration - MUSIC_START_SECONDS
+        music_duration = (
+            final_duration
+            - MUSIC_START_SECONDS
+        )
 
-        # Generate silence for the catalog music portion
-        silence_seg = temp_dir / "silence.aac"
+        silence_seg = (
+            temp_dir / "silence.aac"
+        )
+
         run([
-            "ffmpeg", "-y",
-            "-f", "lavfi",
-            "-i", "anullsrc=r=44100:cl=stereo",
-            "-t", str(music_duration),
-            "-acodec", "aac",
-            "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+
+            "-f",
+            "lavfi",
+
+            "-i",
+            "anullsrc=r=44100:cl=stereo",
+
+            "-t",
+            str(music_duration),
+
+            "-acodec",
+            "aac",
+
+            "-b:a",
+            "192k",
+
             str(silence_seg),
         ])
 
-        audio_concat = temp_dir / "audio_concat.txt"
-        with open(audio_concat, "w", encoding="utf-8") as f:
-            f.write(f"file '{asset_audio_seg.resolve()}'\n")
-            f.write(f"file '{silence_seg.resolve()}'\n")
+        audio_concat = (
+            temp_dir / "audio_concat.txt"
+        )
+
+        with open(
+            audio_concat,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(
+                f"file '{asset_audio_seg.resolve()}'\n"
+            )
+
+            f.write(
+                f"file '{silence_seg.resolve()}'\n"
+            )
 
         run([
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(audio_concat),
-            "-acodec", "aac",
-            "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+
+            "-f",
+            "concat",
+
+            "-safe",
+            "0",
+
+            "-i",
+            str(audio_concat),
+
+            "-acodec",
+            "aac",
+
+            "-b:a",
+            "192k",
+
             str(mixed_audio),
         ])
 
-        # --------------------------------------------------------
-        # Mux video + audio into final output, trimmed to final_duration
-        # --------------------------------------------------------
+
+        # ====================================================
+        # FINAL OUTPUT
+        #
+        # Explicitly force:
+        # 1080x1920
+        # 30 FPS
+        # H.264
+        # yuv420p
+        # ====================================================
 
         run([
-            "ffmpeg", "-y",
-            "-i", str(concatenated),
-            "-i", str(mixed_audio),
-            "-t", str(final_duration),
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
-            "-r", str(FPS),
-            "-c:a", "aac",
-            "-b:a", "192k",
+            "ffmpeg",
+            "-y",
+
+            "-i",
+            str(concatenated),
+
+            "-i",
+            str(mixed_audio),
+
+            "-t",
+            str(final_duration),
+
+            "-map",
+            "0:v:0",
+
+            "-map",
+            "1:a:0",
+
+            "-vf",
+            (
+                f"scale={WIDTH}:{HEIGHT}:"
+                "force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT}"
+            ),
+
+            "-c:v",
+            "libx264",
+
+            "-preset",
+            "medium",
+
+            "-pix_fmt",
+            "yuv420p",
+
+            "-r",
+            str(FPS),
+
+            "-c:a",
+            "aac",
+
+            "-b:a",
+            "192k",
+
             "-shortest",
-            "-movflags", "+faststart",
+
+            "-movflags",
+            "+faststart",
+
             output,
         ])
 
-        actual_duration = get_video_duration(output)
 
-        print(
-            f"\nFinal MP4:"
-            f"\n  {output}"
-            f"\n  duration={actual_duration:.3f}s"
+        # ====================================================
+        # VERIFY OUTPUT
+        # ====================================================
+
+        actual_duration = (
+            get_video_duration(output)
         )
 
+        print(
+            "\n================================"
+        )
+
+        print(
+            "FINAL VIDEO CREATED"
+        )
+
+        print(
+            "================================"
+        )
+
+        print(
+            f"File:     {output}"
+        )
+
+        print(
+            f"Duration: "
+            f"{actual_duration:.3f}s"
+        )
+
+        print(
+            f"Resolution: "
+            f"{WIDTH}x{HEIGHT}"
+        )
+
+        print(
+            f"Aspect ratio: "
+            f"{WIDTH}:{HEIGHT}"
+        )
+
+        print(
+            f"FPS: {FPS}"
+        )
+
+        print(
+            "================================"
+        )
+
+
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        print("\nCleaned up temp directory.")
+
+        shutil.rmtree(
+            temp_dir,
+            ignore_errors=True
+        )
+
+        print(
+            "\nCleaned up temp directory."
+        )
 
     return {
         **state,
@@ -686,32 +996,44 @@ def build_video(state: ReelState):
 
 # ============================================================
 # NODE 4
-# CHECK PUBLIC VIDEO URL
-# ============================================================
-
-# ============================================================
-# NODE 4A
-# UPLOAD VIDEO TO GOOGLE DRIVE & GET PUBLIC URL
+# UPLOAD VIDEO TO GOOGLE DRIVE
 # ============================================================
 
 def upload_to_drive(state: ReelState):
 
-    print("\n=== UPLOAD TO GOOGLE DRIVE ===")
+    print(
+        "\n=== UPLOAD TO GOOGLE DRIVE ==="
+    )
 
     output = state["output_video"]
 
-    # Build credentials from .env tokens
     creds = Credentials(
         token=None,
-        refresh_token=os.getenv("DRIVE_REFRESH_TOKEN"),
-        client_id=os.getenv("GOOGLE_CLIENT_ID"),
-        client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-        token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/drive.file"],
+
+        refresh_token=os.getenv(
+            "DRIVE_REFRESH_TOKEN"
+        ),
+
+        client_id=os.getenv(
+            "GOOGLE_CLIENT_ID"
+        ),
+
+        client_secret=os.getenv(
+            "GOOGLE_CLIENT_SECRET"
+        ),
+
+        token_uri=(
+            "https://oauth2.googleapis.com/token"
+        ),
+
+        scopes=[
+            "https://www.googleapis.com/auth/drive.file"
+        ],
     )
 
-    # Auto-refresh the access token
-    creds.refresh(GoogleRequest())
+    creds.refresh(
+        GoogleRequest()
+    )
 
     service = gdrive_build(
         "drive",
@@ -724,7 +1046,9 @@ def upload_to_drive(state: ReelState):
         "name": Path(output).name,
     }
 
-    print(f"Uploading {output} to Google Drive...")
+    print(
+        f"Uploading {output} to Google Drive..."
+    )
 
     media = MediaFileUpload(
         output,
@@ -745,13 +1069,15 @@ def upload_to_drive(state: ReelState):
     file_id = uploaded.get("id")
 
     if not file_id:
+
         raise RuntimeError(
             "Google Drive did not return a file ID."
         )
 
-    print(f"Drive file ID: {file_id}")
+    print(
+        f"Drive file ID: {file_id}"
+    )
 
-    # Make the file publicly readable (anyone with the link)
     service.permissions().create(
         fileId=file_id,
         body={
@@ -760,15 +1086,14 @@ def upload_to_drive(state: ReelState):
         },
     ).execute()
 
-    # Direct download URL — works for files under ~100MB without auth
     public_url = (
-        f"https://drive.google.com/uc"
+        "https://drive.google.com/uc"
         f"?export=download&id={file_id}"
     )
 
     print(
-        f"\nPublic Drive URL:"
-        f"\n  {public_url}"
+        f"\nPublic Drive URL:\n"
+        f"{public_url}"
     )
 
     return {
@@ -784,21 +1109,22 @@ def upload_to_drive(state: ReelState):
 
 def check_public_video_url(state: ReelState):
 
-    print("\n=== CHECK VIDEO URL ===")
+    print(
+        "\n=== CHECK VIDEO URL ==="
+    )
 
-    # Prefer URL already set by upload_to_drive node.
-    # Fall back to VIDEO_PUBLIC_URL env var if Drive upload was skipped.
     url = (
         state.get("video_public_url")
         or VIDEO_PUBLIC_URL
     )
 
     if not url:
+
         raise RuntimeError(
             "\nVIDEO_PUBLIC_URL is missing.\n\n"
             "Either set VIDEO_PUBLIC_URL in .env\n"
             "or ensure DRIVE credentials are configured "
-            "for auto-upload.\n"
+            "for auto-upload."
         )
 
     print(
@@ -813,44 +1139,64 @@ def check_public_video_url(state: ReelState):
 
 
 # ============================================================
-# NODE 5
+# NODE 6
 # CREATE INSTAGRAM REEL CONTAINER
 # ============================================================
 
 def create_reel_container(state: ReelState):
 
-    print("\n=== CREATE REEL CONTAINER ===")
+    print(
+        "\n=== CREATE REEL CONTAINER ==="
+    )
 
     params = {
         "media_type": "REELS",
-        "video_url": state["video_public_url"],
-        "caption": CAPTION,
-        "share_to_feed": str(
-            SHARE_TO_FEED
-        ).lower(),
+
+        "video_url":
+            state["video_public_url"],
+
+        "caption":
+            CAPTION,
+
+        "share_to_feed":
+            str(SHARE_TO_FEED).lower(),
     }
 
-    # Attach trending audio via audio_configuration.
-    # Per Meta Graph API docs, the correct field is audio_configuration
-    # which accepts a JSON object with audio_id, audio_volume, video_volume.
     audio_id = state.get("audio_id")
 
     if audio_id:
-        params["audio_configuration"] = json.dumps({
-            "audio_id": audio_id,
-            "audio_volume": 100,
-            "video_volume": 100,  # keep asset clip audio audible in first 5s
-        })
+
+        params["audio_configuration"] = (
+            json.dumps(
+                {
+                    "audio_id":
+                        audio_id,
+
+                    "audio_volume":
+                        100,
+
+                    "video_volume":
+                        100,
+                }
+            )
+        )
+
         print(
-            f"Attaching audio_configuration:"
+            "Attaching audio_configuration:"
             f" audio_id={audio_id}"
         )
+
     else:
-        print("WARNING: No audio_id available. Reel will use default audio.")
+
+        print(
+            "WARNING: No audio_id available."
+        )
+
         if PUBLISH_REEL:
+
             raise RuntimeError(
-                "PUBLISH_REEL=true but no audio_id found. "
-                "Cannot publish without trending audio."
+                "PUBLISH_REEL=true but no "
+                "audio_id found."
             )
 
     result = graph_post(
@@ -861,6 +1207,7 @@ def create_reel_container(state: ReelState):
     container_id = result.get("id")
 
     if not container_id:
+
         raise RuntimeError(
             "Meta did not return a container ID."
         )
@@ -876,19 +1223,18 @@ def create_reel_container(state: ReelState):
 
 
 # ============================================================
-# NODE 6
+# NODE 7
 # WAIT FOR CONTAINER
 # ============================================================
 
 def wait_for_container(state: ReelState):
 
-    print("\n=== WAIT FOR INSTAGRAM PROCESSING ===")
+    print(
+        "\n=== WAIT FOR INSTAGRAM PROCESSING ==="
+    )
 
     container_id = state["container_id"]
 
-    # FIX 4:
-    # Increased from 60 -> 90 attempts (15 minutes total).
-    # Added elapsed time logging so you can see how long Meta is taking.
     max_attempts = 90
 
     start_time = time.time()
@@ -911,7 +1257,10 @@ def wait_for_container(state: ReelState):
             "status"
         )
 
-        elapsed = time.time() - start_time
+        elapsed = (
+            time.time()
+            - start_time
+        )
 
         print(
             f"[{attempt + 1}/{max_attempts}] "
@@ -943,18 +1292,20 @@ def wait_for_container(state: ReelState):
 
     raise TimeoutError(
         "Instagram container did not finish "
-        "within 15 minutes (90 attempts)."
+        "within 15 minutes."
     )
 
 
 # ============================================================
-# NODE 7
+# NODE 8
 # PUBLISH
 # ============================================================
 
 def publish_reel(state: ReelState):
 
-    print("\n=== PUBLISH REEL ===")
+    print(
+        "\n=== PUBLISH REEL ==="
+    )
 
     if not PUBLISH_REEL:
 
@@ -982,6 +1333,7 @@ def publish_reel(state: ReelState):
     media_id = result.get("id")
 
     if not media_id:
+
         raise RuntimeError(
             "Instagram did not return media ID."
         )
@@ -1022,6 +1374,11 @@ def build_graph():
     )
 
     graph.add_node(
+        "upload_to_drive",
+        upload_to_drive,
+    )
+
+    graph.add_node(
         "check_public_video_url",
         check_public_video_url,
     )
@@ -1053,11 +1410,6 @@ def build_graph():
     graph.add_edge(
         "calculate_video_duration",
         "build_video",
-    )
-
-    graph.add_node(
-        "upload_to_drive",
-        upload_to_drive,
     )
 
     graph.add_edge(
@@ -1112,6 +1464,20 @@ def main():
     )
 
     print(
+        f"Output resolution: "
+        f"{WIDTH}x{HEIGHT}"
+    )
+
+    print(
+        f"Aspect ratio: "
+        f"{WIDTH}:{HEIGHT}"
+    )
+
+    print(
+        f"FPS: {FPS}"
+    )
+
+    print(
         f"Music start: "
         f"{MUSIC_START_SECONDS}s"
     )
@@ -1127,8 +1493,12 @@ def main():
     )
 
     initial_state: ReelState = {
-        "asset_video": ASSET_VIDEO,
-        "output_video": OUTPUT_VIDEO,
+
+        "asset_video":
+            ASSET_VIDEO,
+
+        "output_video":
+            OUTPUT_VIDEO,
     }
 
     app = build_graph()
@@ -1158,8 +1528,14 @@ def main():
     )
 
 
+# ============================================================
+# RUN
+# ============================================================
+
 if __name__ == "__main__":
+
     try:
+
         main()
 
     except KeyboardInterrupt:
