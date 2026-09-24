@@ -49,6 +49,10 @@ WIDTH = int(os.getenv("VIDEO_WIDTH", "1080"))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1920"))
 FPS = int(os.getenv("VIDEO_FPS", "30"))
 
+# Volume boost for the asset audio in the first MUSIC_START_SECONDS.
+# 1.0 = original level, 1.5 = 50% louder, 2.0 = twice as loud.
+ASSET_AUDIO_BOOST = float(os.getenv("ASSET_AUDIO_BOOST", "1.8"))
+
 # Meta Audio API
 AUDIO_TYPE = "music"
 AUDIO_LIMIT = int(os.getenv("AUDIO_LIMIT", "20"))
@@ -725,12 +729,14 @@ def build_video(state: ReelState):
         # Result on Instagram: 5s asset audio + catalog, then catalog only.
         # --------------------------------------------------------
 
-        # Extract asset audio for the intro segment
+        # Extract asset audio for the intro segment and boost its volume
+        # so the original clip audio is clearly audible in the first 5s.
         run([
             "ffmpeg", "-y",
             "-i", str(normalized),
             "-t", str(MUSIC_START_SECONDS),
             "-vn",
+            "-af", f"volume={ASSET_AUDIO_BOOST}",
             "-acodec", "aac",
             "-b:a", "192k",
             str(asset_audio_seg),
