@@ -73,6 +73,9 @@ jobs:
           VIDEO_WIDTH:            "1080"
           VIDEO_HEIGHT:           "1920"
           VIDEO_FPS:              "30"
+
+          # Audio — boost asset clip volume in first 5s (1.0 = original, 1.8 = 80% louder)
+          ASSET_AUDIO_BOOST:      "1.8"
         run: |
           set -euo pipefail
           echo "Running commit: $(git rev-parse HEAD)"
