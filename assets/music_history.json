@@ -1,6 +1,7 @@
 {
   "version": 3,
   "used_song_keys": [
+    "meta:2292908894894132",
     "meta:2172765939972901"
   ],
   "candidate_history": [
@@ -88,6 +89,91 @@
           "rank": 20
         }
       ]
+    },
+    {
+      "run_at": "2026-09-29T23:16:05.899139Z",
+      "candidates": [
+        {
+          "key": "meta:2292908894894132",
+          "rank": 1
+        },
+        {
+          "key": "meta:2154226371972880",
+          "rank": 2
+        },
+        {
+          "key": "meta:2172765939972901",
+          "rank": 3
+        },
+        {
+          "key": "meta:1109536671886017",
+          "rank": 4
+        },
+        {
+          "key": "meta:2109496123000490",
+          "rank": 5
+        },
+        {
+          "key": "meta:1821831272570576",
+          "rank": 6
+        },
+        {
+          "key": "meta:1435088278519476",
+          "rank": 7
+        },
+        {
+          "key": "meta:1647147476842073",
+          "rank": 8
+        },
+        {
+          "key": "meta:923651928441052",
+          "rank": 9
+        },
+        {
+          "key": "meta:2202474219992206",
+          "rank": 10
+        },
+        {
+          "key": "meta:1105696345181883",
+          "rank": 11
+        },
+        {
+          "key": "meta:1338698842657240",
+          "rank": 12
+        },
+        {
+          "key": "meta:1410572864296478",
+          "rank": 13
+        },
+        {
+          "key": "meta:285084551212657",
+          "rank": 14
+        },
+        {
+          "key": "meta:1452060575396002",
+          "rank": 15
+        },
+        {
+          "key": "meta:566336025028596",
+          "rank": 16
+        },
+        {
+          "key": "meta:766952845724310",
+          "rank": 17
+        },
+        {
+          "key": "meta:1030868559523867",
+          "rank": 18
+        },
+        {
+          "key": "meta:2123729644916614",
+          "rank": 19
+        },
+        {
+          "key": "meta:8719960054796477",
+          "rank": 20
+        }
+      ]
     }
   ],
   "lastfm_cache": {},
@@ -106,6 +192,21 @@
       "meta_rank": 3,
       "external_metadata": null,
       "snapshot_24h": null
+    },
+    {
+      "song_id": "2292908894894132",
+      "song_key": "meta:2292908894894132",
+      "title": "Kari Thi Mohabbat May June Me (feat. Jahar Bhaiya)",
+      "artist": "",
+      "duration_s": 161.378,
+      "published_at": "2026-09-29T23:18:29.032532Z",
+      "reel_id": "18125935735856685",
+      "selection_mode": "auto",
+      "selected_score": 0.55,
+      "selection_reason": "rank=#1 prev_rank=1 A=0.300 B=0.100 C=0.150 D=0.000 E=0.000 listeners=None mode=deterministic (top scorer)",
+      "meta_rank": 1,
+      "external_metadata": null,
+      "snapshot_24h": null
     }
   ],
   "last_candidate_keys": [
@@ -121,13 +222,13 @@
     "meta:2202474219992206",
     "meta:1105696345181883",
     "meta:1338698842657240",
-    "meta:804689545654371",
-    "meta:1477037426080827",
-    "meta:2266427766865547",
-    "meta:5922425614510321",
-    "meta:544448478713784",
-    "meta:1069281134246906",
-    "meta:721432639834754",
-    "meta:1198768518491160"
+    "meta:1410572864296478",
+    "meta:285084551212657",
+    "meta:1452060575396002",
+    "meta:566336025028596",
+    "meta:766952845724310",
+    "meta:1030868559523867",
+    "meta:2123729644916614",
+    "meta:8719960054796477"
   ]
 }
