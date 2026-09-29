@@ -1770,118 +1770,199 @@ def record_new_reel(state: ReelState) -> ReelState:
 def resolve_manual_audio(state: ReelState) -> ReelState:
     """
     MANUAL mode entry point.
-    Uses the audio_id supplied by the operator.
-    1. Validates the audio_id is present.
-    2. Checks it has not already been used (hard exclusion).
-    3. Attempts to resolve metadata from Meta Graph API.
-    4. Falls back to null/unknown values if Meta cannot resolve it.
-    5. Returns the same state keys as select_music() so the rest
-       of the pipeline is completely unchanged.
+    Accepts either:
+      - A numeric Meta audio_id  (e.g. "1234567890123456")
+      - A song title             (e.g. "Those Eyes")
+
+    When a title is given, the function fetches Meta's /ig_audio candidate
+    list and finds the best matching track — no external APIs needed.
+    The matched track provides the real audio_id, duration, download_url, etc.
     """
     print("\n=== RESOLVE MANUAL AUDIO ===")
-    print(f"  Mode:     MANUAL")
-    print(f"  audio_id: {MANUAL_AUDIO_ID}")
 
-    if not MANUAL_AUDIO_ID:
+    raw_input = MANUAL_AUDIO_ID.strip()
+
+    if not raw_input:
         raise RuntimeError(
-            "MANUAL mode: MANUAL_AUDIO_ID env var is empty. "
-            "Supply an Instagram audio ID when triggering the workflow."
+            "MANUAL mode: no song specified. "
+            "Enter either a numeric audio_id or a song title."
         )
 
-    # ── Check used-song exclusion ────────────────────────────
+    is_numeric = raw_input.isdigit()
+    print(f"  Input : '{raw_input}'")
+    print(f"  Type  : {'numeric audio_id' if is_numeric else 'song title (searching Meta catalog)'}")
+
     history   = load_history()
     used_keys = set(history.get("used_song_keys", []))
 
-    candidate_key = f"meta:{MANUAL_AUDIO_ID}"
-    if candidate_key in used_keys or MANUAL_AUDIO_ID in used_keys:
-        raise RuntimeError(
-            f"MANUAL mode: audio_id '{MANUAL_AUDIO_ID}' has already been "
-            f"published and is permanently excluded from reuse. "
-            f"Choose a different audio ID."
-        )
+    # ── BRANCH A: numeric audio_id supplied ─────────────────
+    if is_numeric:
+        candidate_key = f"meta:{raw_input}"
+        if candidate_key in used_keys or raw_input in used_keys:
+            raise RuntimeError(
+                f"MANUAL mode: audio_id '{raw_input}' has already been "
+                f"published and is permanently excluded from reuse."
+            )
 
-    # ── Try to resolve metadata from Meta Graph API ─────────────
-    # We call the existing graph_get() on the audio node.
-    # This may or may not return rich metadata depending on permissions.
-    # We NEVER invent data; unknown fields stay None.
-    title    = None
-    artist   = None
-    duration = None
-    metadata: Dict[str, Any] = {"id": MANUAL_AUDIO_ID}
+        title    = None
+        artist   = None
+        duration = None
+        metadata: Dict[str, Any] = {"id": raw_input}
 
-    try:
-        result = graph_get(
-            f"/{MANUAL_AUDIO_ID}",
+        try:
+            result = graph_get(
+                f"/{raw_input}",
+                {
+                    "fields": (
+                        "id,title,name,artist,"
+                        "duration_in_ms,duration_ms,duration,"
+                        "download_url"
+                    )
+                },
+            )
+            metadata = result
+            title    = result.get("title") or result.get("name")
+            artist   = result.get("artist")
+            dur_ms   = result.get("duration_in_ms") or result.get("duration_ms")
+            if dur_ms is not None:
+                duration = float(dur_ms) / 1000.0
+            elif result.get("duration") is not None:
+                duration = float(result["duration"])
+            print(f"  Meta resolved: title='{title}' artist='{artist}' duration={duration}s")
+        except Exception as exc:
+            print(f"  WARNING: Could not resolve metadata: {exc}")
+
+        if duration is None:
+            raise RuntimeError(
+                f"MANUAL mode: Meta did not return a duration for "
+                f"audio_id '{raw_input}'. Cannot build video without track length."
+            )
+
+        track = metadata
+
+    # ── BRANCH B: song title — search Meta catalog ───────────
+    else:
+        print(f"\n  Fetching Meta /ig_audio catalog to find: '{raw_input}'")
+
+        catalog = graph_get(
+            "/ig_audio",
             {
-                "fields": (
-                    "id,title,name,artist,"
-                    "duration_in_ms,duration_ms,duration,"
-                    "download_url"
-                )
+                "ig_user_id": IG_USER_ID,
+                "audio_type": AUDIO_TYPE,
+                "limit":      AUDIO_LIMIT,
             },
         )
-        metadata = result
 
-        title = (
-            result.get("title")
-            or result.get("name")
+        raw = (
+            catalog.get("audio")
+            or catalog.get("data")
+            or catalog.get("items")
         )
-        artist = result.get("artist")
+        if raw is None and isinstance(catalog, list):
+            raw = catalog
 
-        duration_ms = (
-            result.get("duration_in_ms")
-            or result.get("duration_ms")
-        )
-        if duration_ms is not None:
-            duration = float(duration_ms) / 1000.0
-        elif result.get("duration") is not None:
-            duration = float(result["duration"])
+        all_tracks = [
+            item for item in (raw or [])
+            if isinstance(item, dict) and (item.get("audio_id") or item.get("id"))
+        ]
 
-        print(f"  Meta resolved: title='{title}' artist='{artist}' duration={duration}s")
+        if not all_tracks:
+            raise RuntimeError(
+                "Meta returned no catalog tracks. Cannot search by title."
+            )
 
-    except Exception as exc:
-        # Non-fatal — we still have the audio_id which is enough to publish
+        print(f"  {len(all_tracks)} tracks in catalog. Matching...")
+
+        query_norm  = _normalise(raw_input)
+        best_track  = None
+        best_score  = 0.0
+
+        for t in all_tracks:
+            t_title = t.get("title") or t.get("name") or ""
+            t_norm  = _normalise(t_title)
+
+            if t_norm == query_norm:           # exact match
+                best_track = t
+                best_score = 1.0
+                break
+
+            if query_norm in t_norm or t_norm in query_norm:   # substring
+                score = len(query_norm) / max(len(t_norm), 1)
+                if score > best_score:
+                    best_track = t
+                    best_score = score
+
+        if best_track is None or best_score < 0.5:
+            available = "\n    ".join(
+                f"- {t.get('title') or t.get('name') or '(no title)'}"
+                f" by {t.get('artist') or '(unknown)'}"
+                for t in all_tracks
+            )
+            raise RuntimeError(
+                f"'{raw_input}' not found in Meta's current catalog "
+                f"({len(all_tracks)} tracks checked).\n\n"
+                f"Songs available right now:\n    {available}\n\n"
+                f"Check the spelling or try AUTO mode."
+            )
+
+        track = best_track
+        real_id = str(track.get("audio_id") or track.get("id"))
+
         print(
-            f"  WARNING: Could not resolve metadata for audio_id "
-            f"'{MANUAL_AUDIO_ID}': {exc}\n"
-            f"  Proceeding with null metadata."
+            f"  MATCHED: '{track.get('title') or track.get('name')}' "
+            f"by {track.get('artist')}  "
+            f"[audio_id={real_id}  score={best_score:.2f}]"
         )
 
-    if duration is None:
-        raise RuntimeError(
-            f"MANUAL mode: could not determine audio duration for "
-            f"audio_id '{MANUAL_AUDIO_ID}'. "
-            f"Meta did not return duration_in_ms, duration_ms, or duration. "
-            f"Cannot calculate video length without duration."
-        )
+        key_check = f"meta:{real_id}"
+        if key_check in used_keys or real_id in used_keys:
+            raise RuntimeError(
+                f"'{raw_input}' (audio_id={real_id}) has already been "
+                f"published and cannot be reused."
+            )
 
+        dur_ms = track.get("duration_in_ms") or track.get("duration_ms")
+        if dur_ms is not None:
+            duration = float(dur_ms) / 1000.0
+        elif track.get("duration") is not None:
+            duration = float(track["duration"])
+        else:
+            raise RuntimeError(
+                f"Matched track '{raw_input}' has no duration in catalog response."
+            )
+
+        title  = track.get("title") or track.get("name")
+        artist = track.get("artist")
+
+    # ── Common output ────────────────────────────────────────
+    final_audio_id = str(track.get("audio_id") or track.get("id") or raw_input)
     display_title  = title  or "(unknown title)"
     display_artist = artist or "(unknown artist)"
 
-    print(f"  MANUAL SELECTED: '{display_title}' by {display_artist}")
-    print(f"  Duration: {duration:.2f}s")
+    print(f"\n  MANUAL SELECTED: '{display_title}' by {display_artist}")
+    print(f"  audio_id : {final_audio_id}")
+    print(f"  Duration : {duration:.2f}s")
 
-    if not metadata.get("download_url"):
+    if not track.get("download_url"):
         print(
-            "  WARNING: No download_url available for this audio_id. "
-            "Music portion in local video will be silent, "
-            "but audio_id will still be attached on Instagram."
+            "  WARNING: No download_url for this track. "
+            "Music will be silent in local video, "
+            "but audio_id is still attached on Instagram."
         )
 
-    # Tag metadata so record_new_reel knows this is manual
-    metadata["_meta_rank"]      = None
-    metadata["_lastfm"]         = None
-    metadata["_selection_mode"] = "manual"
+    track["_meta_rank"]      = None
+    track["_lastfm"]         = None
+    track["_selection_mode"] = "manual"
 
     return {
         **state,
-        "audio_id":           MANUAL_AUDIO_ID,
-        "audio_title":        display_title,
-        "audio_metadata":     metadata,
-        "audio_duration":     duration,
-        "selected_score":     None,
-        "selection_reason":   "manual",
-        "selection_mode":     "manual",
+        "audio_id":            final_audio_id,
+        "audio_title":         display_title,
+        "audio_metadata":      track,
+        "audio_duration":      duration,
+        "selected_score":      None,
+        "selection_reason":    f"manual:{raw_input}",
+        "selection_mode":      "manual",
         "last_candidate_keys": [],
     }
 
