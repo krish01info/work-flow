@@ -1,10 +1,13 @@
 import os
+import re
 import sys
 import time
 import json
 import math
+import random
 import shutil
 import subprocess
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TypedDict, Optional, Dict, Any
 
@@ -91,6 +94,30 @@ META_AUDIO_CREATE_FIELD = os.getenv(
     ""
 ).strip()
 
+# Last.fm API key (optional — set as GitHub secret LASTFM_API_KEY)
+LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "").strip()
+
+# ── Scoring weights (must sum to 1.0) ─────────────────────
+# Override via env vars in generate-video.yml if needed.
+W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.30"))
+W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.20"))
+W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.15"))
+W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.25"))
+W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.10"))
+EXPLORATION_RATE    = float(os.getenv("EXPLORATION_RATE",    "0.10"))
+
+# Music history persistence
+MUSIC_HISTORY_PATH       = Path("assets/music_history.json")
+_USED_SONGS_LEGACY       = Path("assets/used_songs.json")
+LASTFM_CACHE_TTL_DAYS    = int(os.getenv("LASTFM_CACHE_TTL_DAYS", "7"))
+CANDIDATE_HISTORY_WINDOW = int(os.getenv("CANDIDATE_HISTORY_WINDOW", "10"))
+
+# Selection mode
+# "auto"   — intelligent scoring pipeline (default / scheduled runs)
+# "manual" — caller supplies an explicit audio_id
+SELECTION_MODE  = os.getenv("SELECTION_MODE",  "auto").strip().lower()
+MANUAL_AUDIO_ID = os.getenv("MANUAL_AUDIO_ID", "").strip()
+
 
 # ============================================================
 # VALIDATION
@@ -155,6 +182,12 @@ class ReelState(TypedDict, total=False):
 
     status: str
     error: str
+
+    # ── New keys added by music-selection system ───────────
+    selected_score:      float   # final score (None for manual)
+    selection_reason:    str     # scoring breakdown or "manual"
+    selection_mode:      str     # "auto" | "manual"
+    last_candidate_keys: list    # all candidate keys from this run
 
 
 # ============================================================
@@ -272,137 +305,659 @@ def get_video_duration(path: str) -> float:
 
 
 # ============================================================
-# NODE 1
-# FIND TRENDING INSTAGRAM AUDIO
+# MUSIC HISTORY HELPERS
 # ============================================================
 
-def find_trending_audio(state: ReelState):
+def _normalise(s: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s.lower())).strip()
 
-    print("\n=== FIND INSTAGRAM AUDIO ===")
 
+def _song_key(track: dict, lastfm: Optional[dict] = None) -> str:
+    """
+    Build a stable deduplication key for a track.
+    Hierarchy: Meta audio ID > MusicBrainz ID (from Last.fm) > normalised text.
+    """
+    meta_id = track.get("audio_id") or track.get("id")
+    if meta_id:
+        return f"meta:{meta_id}"
+    if lastfm and lastfm.get("mbid"):
+        return f"mbid:{lastfm['mbid']}"
+    title  = _normalise(track.get("title") or track.get("name") or "")
+    artist = _normalise(track.get("artist") or "")
+    return f"text:{title}|{artist}"
+
+
+def load_history() -> dict:
+    """Load music_history.json; auto-migrates from used_songs.json on first run."""
+    if MUSIC_HISTORY_PATH.exists():
+        with open(MUSIC_HISTORY_PATH, encoding="utf-8") as f:
+            return json.load(f)
+
+    # First run — create empty history.
+    history: Dict[str, Any] = {
+        "version":           3,
+        "used_song_keys":    [],
+        "candidate_history": [],
+        "lastfm_cache":      {},
+        "reels":             [],
+    }
+
+    # Migrate legacy used_songs.json if present.
+    if _USED_SONGS_LEGACY.exists():
+        with open(_USED_SONGS_LEGACY, encoding="utf-8") as f:
+            legacy = json.load(f)
+        if isinstance(legacy, list):
+            for entry in legacy:
+                key = f"text:{_normalise(str(entry))}"
+                if key not in history["used_song_keys"]:
+                    history["used_song_keys"].append(key)
+        print(
+            f"[MIGRATE] Imported {len(history['used_song_keys'])} entries "
+            f"from used_songs.json → music_history.json"
+        )
+
+    save_history(history)
+    return history
+
+
+def save_history(history: dict) -> None:
+    """Write music_history.json atomically via a temp file."""
+    MUSIC_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MUSIC_HISTORY_PATH.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
+    tmp.replace(MUSIC_HISTORY_PATH)
+
+
+def _needs_snapshot(record: dict, now: datetime) -> bool:
+    """True iff this Reel is ≥24 h old and has no frozen 24 h snapshot yet."""
+    if record.get("snapshot_24h") is not None:
+        return False
+    published = record.get("published_at", "")
+    if not published:
+        return False
+    try:
+        pub_dt = datetime.fromisoformat(
+            published.replace("Z", "+00:00")
+        ).replace(tzinfo=None)
+        return (now - pub_dt) >= timedelta(hours=24)
+    except ValueError:
+        return False
+
+
+def _fetch_insights(reel_id: str) -> dict:
+    """Fetch Reel-level insights from the Meta Insights API."""
+    result = graph_get(
+        f"/{reel_id}/insights",
+        {
+            "metric": "plays,reach,likes,comments,shares,saved",
+            "period": "lifetime",
+        },
+    )
+
+    # Response: {"data": [{"name": "plays", "values": [{"value": N}]}, ...]}
+    data: Dict[str, Any] = {}
+    raw = result.get("data", [])
+    if isinstance(raw, list):
+        for item in raw:
+            name   = item.get("name") or item.get("id", "")
+            values = item.get("values", [])
+            if values:
+                data[name] = values[-1].get("value")
+            elif "value" in item:
+                data[name] = item["value"]
+    else:
+        data = result
+
+    return {
+        "plays":    data.get("plays"),
+        "reach":    data.get("reach"),
+        "likes":    data.get("likes"),
+        "comments": data.get("comments"),
+        "shares":   data.get("shares"),
+        "saved":    data.get("saved") or data.get("saved_count"),
+    }
+
+
+def _enrich_lastfm(
+    title: str,
+    artist: str,
+    api_key: str,
+) -> Optional[dict]:
+    """
+    Fetch track metadata from Last.fm track.getInfo.
+    Returns None on any failure or no match — never raises.
+    Does NOT download audio. API key is never logged.
+    """
+    if not api_key or not title:
+        return None
+
+    params = {
+        "method":      "track.getInfo",
+        "api_key":     api_key,          # never printed
+        "artist":      artist,
+        "track":       title,
+        "format":      "json",
+        "autocorrect": 1,
+    }
+
+    def _call() -> Optional[dict]:
+        try:
+            resp = requests.get(
+                "https://ws.audioscrobbler.com/2.0/",
+                params=params,
+                timeout=10,
+            )
+            if resp.status_code == 429:
+                time.sleep(2)
+                resp = requests.get(
+                    "https://ws.audioscrobbler.com/2.0/",
+                    params=params,
+                    timeout=10,
+                )
+            return resp.json()
+        except Exception as exc:
+            print(f"  [LASTFM] HTTP error for '{title}': {exc}")
+            return None
+
+    body = _call()
+    if body is None or "error" in body or "track" not in body:
+        return None
+
+    t = body["track"]
+
+    playcount = int(t.get("playcount") or 0) or None
+    listeners = int(t.get("listeners") or 0) or None
+    tags      = [
+        tag["name"]
+        for tag in t.get("toptags", {}).get("tag", [])[:5]
+        if tag.get("name")
+    ]
+    release_date = (
+        (t.get("album") or {}).get("releasedate", "")
+    ).strip() or None
+
+    return {
+        "cached_at":    datetime.utcnow().isoformat() + "Z",
+        "provider":     "lastfm",
+        "mbid":         t.get("mbid") or None,
+        "playcount":    playcount,
+        "listeners":    listeners,
+        "tags":         tags,
+        "release_date": release_date,
+    }
+
+
+def _rank_in_previous_run(
+    key: str,
+    candidate_history: list,
+) -> Optional[int]:
+    """
+    Return the 1-based rank of this song in the most recent stored run,
+    or None if it was not present.
+    NOTE: call this BEFORE appending the current run to candidate_history.
+    """
+    if not candidate_history:
+        return None
+    for c in candidate_history[-1].get("candidates", []):
+        if c["key"] == key:
+            return c["rank"]   # 1-based
+    return None
+
+
+def _persistence_score(
+    key: str,
+    candidate_history: list,
+    n: int,
+) -> float:
+    """
+    0–1 score: how consistently + highly ranked this song has been
+    across the last CANDIDATE_HISTORY_WINDOW runs.
+    """
+    if not candidate_history:
+        return 0.0
+
+    window = candidate_history[-CANDIDATE_HISTORY_WINDOW:]
+    ranks  = []
+
+    for run in window:
+        for c in run.get("candidates", []):
+            if c["key"] == key:
+                ranks.append(c["rank"])   # 1-based
+                break
+
+    if not ranks:
+        return 0.0
+
+    freq           = len(ranks) / len(window)                      # 0–1
+    avg_rank_score = 1.0 - ((sum(ranks) / len(ranks) - 1) / max(n - 1, 1))
+    return (freq + avg_rank_score) / 2.0
+
+
+def _score_candidate(
+    track: dict,
+    key: str,
+    rank_0based: int,
+    n: int,
+    candidate_history: list,
+    account_avg_eng: float,
+    confidence: float,
+) -> dict:
+    """
+    Calculate all five scoring signals for one candidate.
+    Returns a dict of component scores and the total.
+    """
+    # A — Instagram Trend Rank (30%)
+    rank_score = 1.0 - (rank_0based / max(n - 1, 1))
+    A = W_TREND_RANK * rank_score
+
+    # B — Instagram Rank Movement (20%)
+    prev_rank = _rank_in_previous_run(key, candidate_history)
+    if prev_rank is None:
+        movement_score = 0.5   # new this run — neutral
+    else:
+        current_rank = rank_0based + 1   # 1-based
+        delta        = prev_rank - current_rank   # positive = moved up
+        max_delta    = n - 1
+        movement_score = max(0.0, min(1.0, (delta + max_delta) / (2 * max_delta)))
+    B = W_RANK_MOVEMENT * movement_score
+
+    # C — Instagram Trend Persistence (15%)
+    persist = _persistence_score(key, candidate_history, n)
+    C = W_TREND_PERSISTENCE * persist
+
+    # D — My-account Performance (25%)
+    # Scored at account-average level (no artist/duration proxies).
+    # Exact song-match is impossible for new songs — baseline = account avg.
+    if account_avg_eng > 0 and confidence > 0:
+        D = W_ACCOUNT_PERF * confidence * min(account_avg_eng / 0.20, 1.0)
+    else:
+        D = 0.0
+
+    # E — External Popularity via Last.fm (10%)
+    lastfm = track.get("_lastfm")
+    if lastfm:
+        listeners = lastfm.get("listeners") or 0
+        playcount  = lastfm.get("playcount") or 0
+        if listeners > 0:
+            pop_raw = math.log10(listeners + 1) / math.log10(5_000_000)
+        elif playcount > 0:
+            pop_raw = math.log10(playcount + 1) / math.log10(500_000_000)
+        else:
+            pop_raw = 0.0
+        E = W_EXTERNAL_POP * min(pop_raw, 1.0)
+    else:
+        E = 0.0
+
+    return {
+        "A":             A,
+        "B":             B,
+        "C":             C,
+        "D":             D,
+        "E":             E,
+        "total":         A + B + C + D + E,
+        "rank_score":    rank_score,
+        "move_score":    movement_score,
+        "persist_score": persist,
+        "prev_rank":     prev_rank,
+    }
+
+
+# ============================================================
+# NODE 0
+# SNAPSHOT MATURE REELS (≥24 h, one-time, never overwrite)
+# ============================================================
+
+def snapshot_mature_reels(state: ReelState) -> ReelState:
+    """
+    For every Reel that has reached ≥24 h old and has no frozen snapshot yet,
+    fetch its Meta Insights and lock the snapshot permanently.
+    Non-fatal: failures are logged and retried on the next run.
+    """
+    print("\n=== SNAPSHOT MATURE REELS ===")
+
+    history       = load_history()
+    now           = datetime.utcnow()
+    snapped       = 0
+    too_young     = 0
+    already_done  = 0
+
+    for record in history.get("reels", []):
+        if record.get("snapshot_24h") is not None:
+            already_done += 1
+            continue
+
+        if not _needs_snapshot(record, now):
+            too_young += 1
+            continue
+
+        reel_id = record.get("reel_id", "")
+        title   = record.get("title", "")
+
+        try:
+            insights = _fetch_insights(reel_id)
+            record["snapshot_24h"] = {
+                "fetched_at": now.isoformat() + "Z",
+                "plays":      insights.get("plays"),
+                "reach":      insights.get("reach"),
+                "likes":      insights.get("likes"),
+                "comments":   insights.get("comments"),
+                "shares":     insights.get("shares"),
+                "saved":      insights.get("saved"),
+            }
+            snapped += 1
+            print(
+                f"  [SNAPPED] '{title}' reel={reel_id}"
+                f"  plays={insights.get('plays')}"
+                f"  reach={insights.get('reach')}"
+                f"  likes={insights.get('likes')}"
+                f"  [LOCKED FOREVER]"
+            )
+        except Exception as exc:
+            # Non-fatal — try again next run (snapshot_24h stays None)
+            print(f"  [WARNING] Could not snapshot reel {reel_id}: {exc}")
+
+    save_history(history)
+    print(
+        f"  Snapshotted: {snapped}"
+        f"  | Too young: {too_young}"
+        f"  | Already done: {already_done}"
+    )
+    return state   # ReelState is unchanged — pure side-effect node
+
+
+# ============================================================
+# NODE 1
+# SELECT MUSIC  (replaces find_trending_audio)
+# ============================================================
+
+def select_music(state: ReelState) -> ReelState:
+    """
+    1. Fetch ~20 Meta trending candidates.
+    2. Enrich each with Last.fm metadata (cached, non-fatal).
+    3. Hard-exclude every previously used song.
+    4. Score remaining candidates on 5 signals.
+    5. Select the top scorer (with small exploration randomness).
+    Returns the same state keys as the old find_trending_audio node.
+    """
+    print("\n=== SELECT MUSIC ===")
+
+    # ── Step A: Fetch Meta candidates ────────────────────────
     result = graph_get(
         "/ig_audio",
         {
             "ig_user_id": IG_USER_ID,
             "audio_type": AUDIO_TYPE,
-            "limit": AUDIO_LIMIT,
+            "limit":      AUDIO_LIMIT,
         },
     )
 
-    print(
-        json.dumps(
-            result,
-            indent=2
-        )
-    )
+    print(json.dumps(result, indent=2))
 
-    # Meta's /ig_audio response wraps tracks under the "audio" key.
-    # Fall back to "data" or "items" for forward compatibility.
     raw = (
         result.get("audio")
         or result.get("data")
         or result.get("items")
     )
-
-    # Flatten: if the response itself is a list, use it directly.
     if raw is None and isinstance(result, list):
         raw = result
 
-    # Keep only valid track dicts that have an audio identifier.
-    tracks = [
+    all_tracks = [
         item
         for item in (raw or [])
         if isinstance(item, dict)
-        and (
-            item.get("audio_id")
-            or item.get("id")
-        )
+        and (item.get("audio_id") or item.get("id"))
     ]
 
-    if not tracks:
+    if not all_tracks:
         raise RuntimeError(
             "Meta returned no Instagram catalog audio.\n"
             f"Raw response: {json.dumps(result, indent=2)}"
         )
 
-    # Strategy: pick the most trending track that also has a download_url
-    # so we can mix audio locally AND attach it to Instagram via audio_id.
-    # Trending = highest position in the API response (index 0 = most trending).
-    # Short tracks (e.g. 18s) are kept — if Meta returns them, they're likely viral.
-    # The video duration auto-adapts to match the music length.
-    track_with_url = next(
-        (t for t in tracks if t.get("download_url")),
-        None
+    print(f"\nMeta returned {len(all_tracks)} candidate(s).")
+
+    # ── Step B: Record candidate ranks for this run ───────────
+    # (used for rank-movement and persistence scoring in future runs)
+    run_at = datetime.utcnow().isoformat() + "Z"
+    current_run_candidates = [
+        {"key": _song_key(t), "rank": idx + 1}   # 1-based
+        for idx, t in enumerate(all_tracks)
+    ]
+
+    # ── Step C: Enrich with Last.fm ───────────────────────────
+    history = load_history()
+    print("\n--- Last.fm Enrichment ---")
+
+    if not LASTFM_API_KEY:
+        print("  LASTFM_API_KEY not set — skipping enrichment (non-fatal).")
+
+    for track in all_tracks:
+        key    = _song_key(track)
+        title  = track.get("title") or track.get("name") or ""
+        artist = track.get("artist") or ""
+
+        # Check cache first
+        cached = history.get("lastfm_cache", {}).get(key)
+        if cached:
+            cached_at  = datetime.fromisoformat(
+                cached["cached_at"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+            age_days   = (datetime.utcnow() - cached_at).days
+            if age_days <= LASTFM_CACHE_TTL_DAYS:
+                track["_lastfm"] = cached
+                print(
+                    f"  [CACHE] '{title}'"
+                    f"  listeners={cached.get('listeners')}"
+                )
+                continue
+
+        # Fetch from Last.fm
+        if LASTFM_API_KEY:
+            track["_lastfm"] = _enrich_lastfm(title, artist, LASTFM_API_KEY)
+            if track["_lastfm"]:
+                history.setdefault("lastfm_cache", {})[key] = track["_lastfm"]
+                print(
+                    f"  [LASTFM] '{title}'"
+                    f"  listeners={track['_lastfm'].get('listeners')}"
+                    f"  playcount={track['_lastfm'].get('playcount')}"
+                    f"  tags={track['_lastfm'].get('tags')}"
+                )
+            else:
+                track["_lastfm"] = None
+                print(f"  [LASTFM] '{title}': no match")
+        else:
+            track["_lastfm"] = None
+
+    # ── Step D: Hard-exclude used songs ──────────────────────
+    used_keys = set(history.get("used_song_keys", []))
+    fresh     = []
+
+    print("\n--- Used-song Filter ---")
+    for track in all_tracks:
+        lastfm = track.get("_lastfm")
+        key    = _song_key(track, lastfm)
+        title  = track.get("title") or track.get("name") or "Unknown"
+        artist = track.get("artist") or ""
+
+        # Check all three key tiers
+        meta_id = track.get("audio_id") or track.get("id")
+        mbid    = (lastfm or {}).get("mbid")
+        rejected = (
+            key in used_keys
+            or (meta_id and f"meta:{meta_id}" in used_keys)
+            or (mbid    and f"mbid:{mbid}"    in used_keys)
+        )
+
+        if rejected:
+            print(f"  REJECTED (already used): '{title}' by {artist} [key={key}]")
+        else:
+            track["_key"] = key
+            fresh.append(track)
+
+    if not fresh:
+        raise RuntimeError(
+            "All Meta candidates have already been used. "
+            "No new song available this run. "
+            "Wait for Meta to refresh its catalog."
+        )
+
+    print(f"  {len(fresh)} candidate(s) remain after exclusions.")
+
+    # ── Step E: Score each remaining candidate ────────────────
+    matured = [
+        r for r in history.get("reels", [])
+        if r.get("snapshot_24h") is not None
+    ]
+
+    # Account-wide engagement average (song-level learning — no artist/duration proxy)
+    if matured:
+        eng_rates = []
+        for r in matured:
+            snap   = r["snapshot_24h"]
+            reach  = snap.get("reach") or 1
+            total_eng = (
+                (snap.get("likes")    or 0)
+                + (snap.get("comments") or 0)
+                + (snap.get("shares")   or 0)
+                + (snap.get("saved")    or 0)
+            )
+            eng_rates.append(total_eng / reach)
+        account_avg_eng = sum(eng_rates) / len(eng_rates)
+    else:
+        account_avg_eng = 0.0
+
+    confidence       = min(1.0, len(matured) / 10.0)
+    n                = len(all_tracks)
+    cand_history     = history.get("candidate_history", [])
+
+    for track in fresh:
+        key       = track["_key"]
+        rank_idx  = next(
+            (i for i, t in enumerate(all_tracks)
+             if _song_key(t) == key),
+            0,
+        )
+        track["_scores"] = _score_candidate(
+            track          = track,
+            key            = key,
+            rank_0based    = rank_idx,
+            n              = n,
+            candidate_history = cand_history,
+            account_avg_eng   = account_avg_eng,
+            confidence        = confidence,
+        )
+        track["_final_score"] = track["_scores"]["total"]
+        track["_rank_1based"] = rank_idx + 1
+
+    ranked = sorted(fresh, key=lambda t: t["_final_score"], reverse=True)
+
+    # Log all scores
+    print("\n=== CANDIDATE SCORING RESULTS ===")
+    for i, t in enumerate(ranked):
+        s         = t["_scores"]
+        listeners = (t.get("_lastfm") or {}).get("listeners")
+        prev_r    = s["prev_rank"]
+        move_str  = (
+            f"(was #{prev_r})" if prev_r else "(new this run)"
+        )
+        print(
+            f"  #{i+1:02d} '{t.get('title') or t.get('name')}'"
+            f" | score={t['_final_score']:.3f}"
+            f" | A={s['A']:.3f} B={s['B']:.3f}"
+            f" C={s['C']:.3f} D={s['D']:.3f} E={s['E']:.3f}"
+            f" | rank=#{t['_rank_1based']} {move_str}"
+            f" | listeners={listeners}"
+        )
+
+    # ── Step F: Exploration ───────────────────────────────────
+    if random.random() < EXPLORATION_RATE and len(ranked) >= 2:
+        pool     = ranked[:min(5, len(ranked))]
+        selected = random.choice(pool)
+        expl_str = f"EXPLORATION (from top-{len(pool)} pool)"
+    else:
+        selected = ranked[0]
+        expl_str = "deterministic (top scorer)"
+
+    sel_title  = selected.get("title") or selected.get("name") or "Unknown"
+    sel_artist = selected.get("artist") or ""
+    sel_s      = selected["_scores"]
+    sel_key    = selected["_key"]
+    sel_rank   = selected["_rank_1based"]
+    listeners  = (selected.get("_lastfm") or {}).get("listeners")
+
+    reason = (
+        f"rank=#{sel_rank}"
+        f" prev_rank={sel_s['prev_rank']}"
+        f" A={sel_s['A']:.3f}"
+        f" B={sel_s['B']:.3f}"
+        f" C={sel_s['C']:.3f}"
+        f" D={sel_s['D']:.3f}"
+        f" E={sel_s['E']:.3f}"
+        f" listeners={listeners}"
+        f" mode={expl_str}"
     )
 
-    # Use the trending track with download_url; fall back to first track.
-    track = track_with_url or tracks[0]
+    print(f"\nSELECTED: '{sel_title}' by {sel_artist}")
+    print(f"  key={sel_key}")
+    print(f"  score={selected['_final_score']:.3f}")
+    print(f"  {reason}")
 
-    if not track.get("download_url"):
+    if not selected.get("download_url"):
         print(
             "WARNING: Selected track has no download_url. "
             "Music portion in local video will be silent, "
             "but audio_id will still be attached on Instagram."
         )
 
-    # Log trending rank
-    rank = tracks.index(track) + 1
-    print(f"  Trending rank: #{rank} of {len(tracks)} returned")
-
-    audio_id = (
-        track.get("id")
-        or track.get("audio_id")
+    # ── Save candidate history for this run ───────────────────
+    history.setdefault("candidate_history", []).append({
+        "run_at":     run_at,
+        "candidates": current_run_candidates,
+    })
+    history["candidate_history"] = (
+        history["candidate_history"][-CANDIDATE_HISTORY_WINDOW:]
     )
+    save_history(history)
 
+    # ── Extract audio fields (same contract as old node) ──────
+    audio_id = selected.get("id") or selected.get("audio_id")
     if not audio_id:
-        raise RuntimeError(
-            "Could not find audio ID in Meta response."
-        )
+        raise RuntimeError("Could not find audio ID in selected track.")
 
-    title = (
-        track.get("title")
-        or track.get("name")
-        or "Unknown"
-    )
-
-    print(
-        f"\nSelected Instagram audio:"
-        f"\n  ID: {audio_id}"
-        f"\n  Title: {title}"
-    )
-
-    # FIX 1:
-    # Meta's catalog response uses "duration_in_ms" not "duration_ms".
-    # Check all known field names to be safe.
     duration_ms = (
-        track.get("duration_in_ms")
-        or track.get("duration_ms")
+        selected.get("duration_in_ms")
+        or selected.get("duration_ms")
     )
-
-    duration_s = (
-        track.get("duration")
-    )
+    duration_s_field = selected.get("duration")
 
     if duration_ms is not None:
         duration = float(duration_ms) / 1000.0
-    elif duration_s is not None:
-        duration = float(duration_s)
+    elif duration_s_field is not None:
+        duration = float(duration_s_field)
     else:
         raise RuntimeError(
-            f"No duration found in track: {json.dumps(track, indent=2)}"
+            f"No duration found in selected track: "
+            f"{json.dumps({k: v for k, v in selected.items() if not k.startswith('_')}, indent=2)}"
         )
 
-    print(
-        f"  Duration: {duration:.2f}s"
-    )
+    print(f"  Audio duration: {duration:.2f}s")
+
+    # Tag the selected track with its rank so record_new_reel can store it
+    selected["_meta_rank"] = sel_rank
 
     return {
         **state,
-        "audio_id": str(audio_id),
-        "audio_title": title,
-        "audio_metadata": track,
-        "audio_duration": duration,
+        "audio_id":           str(audio_id),
+        "audio_title":        sel_title,
+        "audio_metadata":     selected,
+        "audio_duration":     duration,
+        "selected_score":     selected["_final_score"],
+        "selection_reason":   reason,
+        "last_candidate_keys": [c["key"] for c in current_run_candidates],
     }
+
 
 
 # ============================================================
@@ -1136,106 +1691,267 @@ def publish_reel(state: ReelState):
 
 
 # ============================================================
+# NODE — RECORD NEW REEL
+# (runs after publish_reel, before END)
+# ============================================================
+
+def record_new_reel(state: ReelState) -> ReelState:
+    """
+    Save the initial history record for the just-published Reel.
+    Makes ZERO API calls — insights are fetched later by snapshot_mature_reels
+    on the first run that executes ≥24 hours after published_at.
+    """
+    print("\n=== RECORD NEW REEL ===")
+
+    media_id = state.get("media_id")
+
+    if not media_id:
+        print("Dry run — PUBLISH_REEL=false. Skipping record.")
+        return state
+
+    now        = datetime.utcnow().isoformat() + "Z"
+    audio_meta = state.get("audio_metadata") or {}
+    lastfm     = audio_meta.get("_lastfm")
+    key        = _song_key(audio_meta, lastfm)
+
+    record: Dict[str, Any] = {
+        "song_id":          state.get("audio_id", ""),
+        "song_key":         key,
+        "title":            state.get("audio_title", ""),
+        "artist":           audio_meta.get("artist", ""),
+        "duration_s":       state.get("audio_duration", 0.0),
+        "published_at":     now,
+        "reel_id":          media_id,
+        "selection_mode":   state.get("selection_mode", SELECTION_MODE),
+        "selected_score":   state.get("selected_score"),
+        "selection_reason": state.get("selection_reason", ""),
+        "meta_rank":        audio_meta.get("_meta_rank"),
+        "external_metadata": (
+            {k: v for k, v in lastfm.items() if k != "cached_at"}
+            if lastfm else None
+        ),
+        "snapshot_24h":     None,   # filled by snapshot_mature_reels on future run
+    }
+
+    history = load_history()
+    history.setdefault("reels", []).append(record)
+
+    # Register all three key tiers so the song can never be selected again
+    used = set(history.get("used_song_keys", []))
+    used.add(key)
+    meta_id = audio_meta.get("audio_id") or audio_meta.get("id")
+    if meta_id:
+        used.add(f"meta:{meta_id}")
+    if lastfm and lastfm.get("mbid"):
+        used.add(f"mbid:{lastfm['mbid']}")
+    history["used_song_keys"] = list(used)
+
+    # Update last_candidate_keys in history
+    history["last_candidate_keys"] = state.get("last_candidate_keys", [])
+
+    save_history(history)
+
+    print(f"  Recorded: reel_id={media_id}")
+    print(f"  Mode:     {record['selection_mode']}")
+    print(f"  Song:     '{record['title']}' by {record['artist']}")
+    print(f"  Key:      {key}")
+    print(
+        f"  24 h snapshot will be taken on the first run "
+        f"after {now} +24 h"
+    )
+    return state
+
+
+# ============================================================
+# NODE 0B
+# RESOLVE MANUAL AUDIO  (MANUAL mode only)
+# ============================================================
+
+def resolve_manual_audio(state: ReelState) -> ReelState:
+    """
+    MANUAL mode entry point.
+    Uses the audio_id supplied by the operator.
+    1. Validates the audio_id is present.
+    2. Checks it has not already been used (hard exclusion).
+    3. Attempts to resolve metadata from Meta Graph API.
+    4. Falls back to null/unknown values if Meta cannot resolve it.
+    5. Returns the same state keys as select_music() so the rest
+       of the pipeline is completely unchanged.
+    """
+    print("\n=== RESOLVE MANUAL AUDIO ===")
+    print(f"  Mode:     MANUAL")
+    print(f"  audio_id: {MANUAL_AUDIO_ID}")
+
+    if not MANUAL_AUDIO_ID:
+        raise RuntimeError(
+            "MANUAL mode: MANUAL_AUDIO_ID env var is empty. "
+            "Supply an Instagram audio ID when triggering the workflow."
+        )
+
+    # ── Check used-song exclusion ────────────────────────────
+    history   = load_history()
+    used_keys = set(history.get("used_song_keys", []))
+
+    candidate_key = f"meta:{MANUAL_AUDIO_ID}"
+    if candidate_key in used_keys or MANUAL_AUDIO_ID in used_keys:
+        raise RuntimeError(
+            f"MANUAL mode: audio_id '{MANUAL_AUDIO_ID}' has already been "
+            f"published and is permanently excluded from reuse. "
+            f"Choose a different audio ID."
+        )
+
+    # ── Try to resolve metadata from Meta Graph API ─────────────
+    # We call the existing graph_get() on the audio node.
+    # This may or may not return rich metadata depending on permissions.
+    # We NEVER invent data; unknown fields stay None.
+    title    = None
+    artist   = None
+    duration = None
+    metadata: Dict[str, Any] = {"id": MANUAL_AUDIO_ID}
+
+    try:
+        result = graph_get(
+            f"/{MANUAL_AUDIO_ID}",
+            {
+                "fields": (
+                    "id,title,name,artist,"
+                    "duration_in_ms,duration_ms,duration,"
+                    "download_url"
+                )
+            },
+        )
+        metadata = result
+
+        title = (
+            result.get("title")
+            or result.get("name")
+        )
+        artist = result.get("artist")
+
+        duration_ms = (
+            result.get("duration_in_ms")
+            or result.get("duration_ms")
+        )
+        if duration_ms is not None:
+            duration = float(duration_ms) / 1000.0
+        elif result.get("duration") is not None:
+            duration = float(result["duration"])
+
+        print(f"  Meta resolved: title='{title}' artist='{artist}' duration={duration}s")
+
+    except Exception as exc:
+        # Non-fatal — we still have the audio_id which is enough to publish
+        print(
+            f"  WARNING: Could not resolve metadata for audio_id "
+            f"'{MANUAL_AUDIO_ID}': {exc}\n"
+            f"  Proceeding with null metadata."
+        )
+
+    if duration is None:
+        raise RuntimeError(
+            f"MANUAL mode: could not determine audio duration for "
+            f"audio_id '{MANUAL_AUDIO_ID}'. "
+            f"Meta did not return duration_in_ms, duration_ms, or duration. "
+            f"Cannot calculate video length without duration."
+        )
+
+    display_title  = title  or "(unknown title)"
+    display_artist = artist or "(unknown artist)"
+
+    print(f"  MANUAL SELECTED: '{display_title}' by {display_artist}")
+    print(f"  Duration: {duration:.2f}s")
+
+    if not metadata.get("download_url"):
+        print(
+            "  WARNING: No download_url available for this audio_id. "
+            "Music portion in local video will be silent, "
+            "but audio_id will still be attached on Instagram."
+        )
+
+    # Tag metadata so record_new_reel knows this is manual
+    metadata["_meta_rank"]      = None
+    metadata["_lastfm"]         = None
+    metadata["_selection_mode"] = "manual"
+
+    return {
+        **state,
+        "audio_id":           MANUAL_AUDIO_ID,
+        "audio_title":        display_title,
+        "audio_metadata":     metadata,
+        "audio_duration":     duration,
+        "selected_score":     None,
+        "selection_reason":   "manual",
+        "selection_mode":     "manual",
+        "last_candidate_keys": [],
+    }
+
+
+# ============================================================
 # LANGGRAPH
 # ============================================================
+
+
+def _route_selection(state: ReelState) -> str:
+    """
+    Conditional router:
+      SELECTION_MODE == "manual" → resolve_manual_audio
+      anything else             → select_music  (AUTO)
+    """
+    if SELECTION_MODE == "manual":
+        print("[ROUTER] mode=manual → resolve_manual_audio")
+        return "resolve_manual_audio"
+    print("[ROUTER] mode=auto → select_music")
+    return "select_music"
+
 
 def build_graph():
 
     graph = StateGraph(ReelState)
 
-    graph.add_node(
-        "find_trending_audio",
-        find_trending_audio,
+    # ── Selection nodes (one or the other runs, never both) ──
+    graph.add_node("snapshot_mature_reels", snapshot_mature_reels)
+    graph.add_node("select_music",          select_music)          # AUTO
+    graph.add_node("resolve_manual_audio",  resolve_manual_audio)  # MANUAL
+    graph.add_node("record_new_reel",       record_new_reel)
+
+    # ── Shared pipeline nodes (logic unchanged) ──────────────
+    graph.add_node("generate_caption",        generate_caption)
+    graph.add_node("calculate_video_duration", calculate_video_duration)
+    graph.add_node("build_video",             build_video)
+    graph.add_node("upload_to_drive",         upload_to_drive)
+    graph.add_node("check_public_video_url",  check_public_video_url)
+    graph.add_node("create_reel_container",   create_reel_container)
+    graph.add_node("wait_for_container",      wait_for_container)
+    graph.add_node("publish_reel",            publish_reel)
+
+    # ── Entry point ───────────────────────────────────────────
+    graph.set_entry_point("snapshot_mature_reels")
+
+    # ── Conditional routing: AUTO vs MANUAL ──────────────────
+    #    Both paths converge at generate_caption.
+    graph.add_conditional_edges(
+        "snapshot_mature_reels",
+        _route_selection,
+        {
+            "select_music":         "select_music",
+            "resolve_manual_audio": "resolve_manual_audio",
+        },
     )
 
-    graph.add_node(
-        "calculate_video_duration",
-        calculate_video_duration,
-    )
+    # ── Convergence: both selection nodes → same pipeline ───
+    graph.add_edge("select_music",         "generate_caption")
+    graph.add_edge("resolve_manual_audio", "generate_caption")
 
-    graph.add_node(
-        "build_video",
-        build_video,
-    )
-
-    graph.add_node(
-        "check_public_video_url",
-        check_public_video_url,
-    )
-
-    graph.add_node(
-        "create_reel_container",
-        create_reel_container,
-    )
-
-    graph.add_node(
-        "wait_for_container",
-        wait_for_container,
-    )
-
-    graph.add_node(
-        "publish_reel",
-        publish_reel,
-    )
-
-    graph.set_entry_point(
-        "find_trending_audio"
-    )
-
-    graph.add_node(
-        "generate_caption",
-        generate_caption,
-    )
-
-    graph.add_edge(
-        "find_trending_audio",
-        "generate_caption",
-    )
-
-    graph.add_edge(
-        "generate_caption",
-        "calculate_video_duration",
-    )
-
-    graph.add_edge(
-        "calculate_video_duration",
-        "build_video",
-    )
-
-    graph.add_node(
-        "upload_to_drive",
-        upload_to_drive,
-    )
-
-    graph.add_edge(
-        "build_video",
-        "upload_to_drive",
-    )
-
-    graph.add_edge(
-        "upload_to_drive",
-        "check_public_video_url",
-    )
-
-    graph.add_edge(
-        "check_public_video_url",
-        "create_reel_container",
-    )
-
-    graph.add_edge(
-        "create_reel_container",
-        "wait_for_container",
-    )
-
-    graph.add_edge(
-        "wait_for_container",
-        "publish_reel",
-    )
-
-    graph.add_edge(
-        "publish_reel",
-        END,
-    )
+    # ── Shared pipeline edges (unchanged) ───────────────────
+    graph.add_edge("generate_caption",         "calculate_video_duration")
+    graph.add_edge("calculate_video_duration", "build_video")
+    graph.add_edge("build_video",              "upload_to_drive")
+    graph.add_edge("upload_to_drive",          "check_public_video_url")
+    graph.add_edge("check_public_video_url",   "create_reel_container")
+    graph.add_edge("create_reel_container",    "wait_for_container")
+    graph.add_edge("wait_for_container",       "publish_reel")
+    graph.add_edge("publish_reel",             "record_new_reel")
+    graph.add_edge("record_new_reel",          END)
 
     return graph.compile()
 

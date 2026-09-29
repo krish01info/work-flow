@@ -4,7 +4,20 @@ name: Generate & Publish Instagram Reel
 on:
   schedule:
     - cron: '0 */4 * * *'   # every 4 hours (6 uploads/day)
-  workflow_dispatch: {}     # manual trigger from Actions tab
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Music selection mode"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - manual
+      audio_id:
+        description: "Instagram audio ID (manual mode only — leave empty for auto)"
+        required: false
+        type: string
 
 concurrency:
   group: reel-pipeline
@@ -48,6 +61,17 @@ jobs:
           fi
           echo "Asset video found: $(du -sh assets/the_transition_i_n_between_is.mp4)"
 
+      - name: Validate inputs
+        run: |
+          MODE="${{ github.event.inputs.mode || 'auto' }}"
+          AID="${{ github.event.inputs.audio_id || '' }}"
+          echo "Selection mode : $MODE"
+          echo "Audio ID given : $([ -n "$AID" ] && echo 'yes' || echo 'no')"
+          if [[ "$MODE" == "manual" && -z "$AID" ]]; then
+            echo "::error::Manual mode requires an audio_id. Re-run the workflow and enter an Instagram audio ID."
+            exit 1
+          fi
+
       - name: Run Reel Builder
         env:
           # Instagram / Meta
@@ -76,6 +100,11 @@ jobs:
 
           # Audio — boost asset clip volume in first 5s (1.0 = original, 1.8 = 80% louder)
           ASSET_AUDIO_BOOST:      "1.8"
+          # Last.fm API key for external music metadata (optional)
+          LASTFM_API_KEY:         ${{ secrets.LASTFM_API_KEY }}
+          # Selection mode: auto (default) or manual
+          SELECTION_MODE:         ${{ github.event.inputs.mode || 'auto' }}
+          MANUAL_AUDIO_ID:        ${{ github.event.inputs.audio_id || '' }}
         run: |
           set -euo pipefail
           echo "Running commit: $(git rev-parse HEAD)"
@@ -90,3 +119,13 @@ jobs:
           path: final_reel.mp4
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Commit music history back to repo
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/music_history.json
+          git diff --cached --quiet || \
+            git commit -m "chore: update music history [skip ci]"
+          git push
