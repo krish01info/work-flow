@@ -1,7 +1,133 @@
 {
   "version": 3,
-  "used_song_keys": [],
-  "candidate_history": [],
+  "used_song_keys": [
+    "meta:2172765939972901"
+  ],
+  "candidate_history": [
+    {
+      "run_at": "2026-09-29T19:26:37.885829Z",
+      "candidates": [
+        {
+          "key": "meta:2292908894894132",
+          "rank": 1
+        },
+        {
+          "key": "meta:2154226371972880",
+          "rank": 2
+        },
+        {
+          "key": "meta:2172765939972901",
+          "rank": 3
+        },
+        {
+          "key": "meta:1109536671886017",
+          "rank": 4
+        },
+        {
+          "key": "meta:2109496123000490",
+          "rank": 5
+        },
+        {
+          "key": "meta:1821831272570576",
+          "rank": 6
+        },
+        {
+          "key": "meta:1435088278519476",
+          "rank": 7
+        },
+        {
+          "key": "meta:1647147476842073",
+          "rank": 8
+        },
+        {
+          "key": "meta:923651928441052",
+          "rank": 9
+        },
+        {
+          "key": "meta:2202474219992206",
+          "rank": 10
+        },
+        {
+          "key": "meta:1105696345181883",
+          "rank": 11
+        },
+        {
+          "key": "meta:1338698842657240",
+          "rank": 12
+        },
+        {
+          "key": "meta:804689545654371",
+          "rank": 13
+        },
+        {
+          "key": "meta:1477037426080827",
+          "rank": 14
+        },
+        {
+          "key": "meta:2266427766865547",
+          "rank": 15
+        },
+        {
+          "key": "meta:5922425614510321",
+          "rank": 16
+        },
+        {
+          "key": "meta:544448478713784",
+          "rank": 17
+        },
+        {
+          "key": "meta:1069281134246906",
+          "rank": 18
+        },
+        {
+          "key": "meta:721432639834754",
+          "rank": 19
+        },
+        {
+          "key": "meta:1198768518491160",
+          "rank": 20
+        }
+      ]
+    }
+  ],
   "lastfm_cache": {},
-  "reels": []
+  "reels": [
+    {
+      "song_id": "2172765939972901",
+      "song_key": "meta:2172765939972901",
+      "title": "Kanch Keri (feat. Mandeep Ramana, Jagirdar RV, Ismail Langa Group)",
+      "artist": "",
+      "duration_s": 216.749,
+      "published_at": "2026-09-29T19:29:12.089676Z",
+      "reel_id": "18118762052472542",
+      "selection_mode": "auto",
+      "selected_score": 0.368421052631579,
+      "selection_reason": "rank=#3 prev_rank=None A=0.268 B=0.100 C=0.000 D=0.000 E=0.000 listeners=None mode=EXPLORATION (from top-5 pool)",
+      "meta_rank": 3,
+      "external_metadata": null,
+      "snapshot_24h": null
+    }
+  ],
+  "last_candidate_keys": [
+    "meta:2292908894894132",
+    "meta:2154226371972880",
+    "meta:2172765939972901",
+    "meta:1109536671886017",
+    "meta:2109496123000490",
+    "meta:1821831272570576",
+    "meta:1435088278519476",
+    "meta:1647147476842073",
+    "meta:923651928441052",
+    "meta:2202474219992206",
+    "meta:1105696345181883",
+    "meta:1338698842657240",
+    "meta:804689545654371",
+    "meta:1477037426080827",
+    "meta:2266427766865547",
+    "meta:5922425614510321",
+    "meta:544448478713784",
+    "meta:1069281134246906",
+    "meta:721432639834754",
+    "meta:1198768518491160"
+  ]
 }
