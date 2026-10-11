@@ -106,6 +106,19 @@ W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.25"))
 W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.10"))
 EXPLORATION_RATE    = float(os.getenv("EXPLORATION_RATE",    "0.10"))
 
+_W_SUM = (
+    W_TREND_RANK + W_RANK_MOVEMENT + W_TREND_PERSISTENCE
+    + W_ACCOUNT_PERF + W_EXTERNAL_POP
+)
+if abs(_W_SUM - 1.0) > 0.01:
+    print(
+        f"[WARNING] Scoring weights sum to {_W_SUM:.3f}, not 1.0. "
+        "Scores will still rank correctly but totals won't be 0–1."
+    )
+
+# Hashtag counts barely move day to day — cache them to save API calls.
+HASHTAG_CACHE_TTL_DAYS = int(os.getenv("HASHTAG_CACHE_TTL_DAYS", "7"))
+
 # Music history persistence
 MUSIC_HISTORY_PATH       = Path("assets/music_history.json")
 _USED_SONGS_LEGACY       = Path("assets/used_songs.json")
@@ -174,6 +187,7 @@ class ReelState(TypedDict, total=False):
     audio_duration: float
 
     video_public_url: str
+    drive_file_id: str
 
     container_id: str
     media_id: str
@@ -304,6 +318,17 @@ def get_video_duration(path: str) -> float:
     return float(result.stdout.strip())
 
 
+def _has_audio_stream(path: str) -> bool:
+    result = run([
+        "ffprobe", "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        path,
+    ])
+    return bool(result.stdout.strip())
+
+
 # ============================================================
 # MUSIC HISTORY HELPERS
 # ============================================================
@@ -323,9 +348,31 @@ def _song_key(track: dict, lastfm: Optional[dict] = None) -> str:
         return f"meta:{meta_id}"
     if lastfm and lastfm.get("mbid"):
         return f"mbid:{lastfm['mbid']}"
+    return _text_key(track)
+
+
+def _text_key(track: dict) -> str:
     title  = _normalise(track.get("title") or track.get("name") or "")
     artist = _normalise(track.get("artist") or "")
     return f"text:{title}|{artist}"
+
+
+def _all_song_keys(track: dict, lastfm: Optional[dict] = None) -> set:
+    """
+    Every identity tier for a track. Used for both the used-song check and
+    for recording a published song, so the same song re-listed under a new
+    Meta audio ID is still caught by its MBID or title|artist key.
+    """
+    keys = set()
+    meta_id = track.get("audio_id") or track.get("id")
+    if meta_id:
+        keys.add(f"meta:{meta_id}")
+    if lastfm and lastfm.get("mbid"):
+        keys.add(f"mbid:{lastfm['mbid']}")
+    text = _text_key(track)
+    if text != "text:|":          # skip empty title+artist
+        keys.add(text)
+    return keys
 
 
 def load_history() -> dict:
@@ -386,17 +433,14 @@ def _needs_snapshot(record: dict, now: datetime) -> bool:
         return False
 
 
-def _fetch_insights(reel_id: str) -> dict:
-    """Fetch Reel-level insights from the Meta Insights API."""
-    result = graph_get(
-        f"/{reel_id}/insights",
-        {
-            "metric": "plays,reach,likes,comments,shares,saved",
-            "period": "lifetime",
-        },
-    )
+# Meta replaced the Reels "plays" metric with "views". Asking for a metric
+# the API version doesn't support fails the *whole* request, so we try the
+# batch first and fall back to one metric at a time.
+_INSIGHT_METRICS = ["views", "reach", "likes", "comments", "shares", "saved"]
 
-    # Response: {"data": [{"name": "plays", "values": [{"value": N}]}, ...]}
+
+def _parse_insights(result: dict) -> Dict[str, Any]:
+    # Response: {"data": [{"name": "views", "values": [{"value": N}]}, ...]}
     data: Dict[str, Any] = {}
     raw = result.get("data", [])
     if isinstance(raw, list):
@@ -407,11 +451,37 @@ def _fetch_insights(reel_id: str) -> dict:
                 data[name] = values[-1].get("value")
             elif "value" in item:
                 data[name] = item["value"]
-    else:
-        data = result
+    return data
 
+
+def _fetch_insights(reel_id: str) -> dict:
+    """Fetch Reel-level insights from the Meta Insights API."""
+    params = {"period": "lifetime"}
+
+    try:
+        data = _parse_insights(graph_get(
+            f"/{reel_id}/insights",
+            {**params, "metric": ",".join(_INSIGHT_METRICS)},
+        ))
+    except RuntimeError as exc:
+        print(f"  [INSIGHTS] batch request failed, trying per metric: {exc}")
+        data = {}
+        for metric in _INSIGHT_METRICS + ["plays"]:
+            try:
+                data.update(_parse_insights(graph_get(
+                    f"/{reel_id}/insights",
+                    {**params, "metric": metric},
+                )))
+            except RuntimeError:
+                print(f"  [INSIGHTS] metric '{metric}' not available")
+
+    if not data:
+        raise RuntimeError(f"No insights metrics returned for reel {reel_id}")
+
+    views = data.get("views") if data.get("views") is not None else data.get("plays")
     return {
-        "plays":    data.get("plays"),
+        "views":    views,
+        "plays":    views,          # kept for older history readers
         "reach":    data.get("reach"),
         "likes":    data.get("likes"),
         "comments": data.get("comments"),
@@ -535,14 +605,70 @@ def _persistence_score(
     return (freq + avg_rank_score) / 2.0
 
 
+def _engagement_rate(snapshot: dict) -> float:
+    reach = snapshot.get("reach") or 1
+    total = (
+        (snapshot.get("likes")    or 0)
+        + (snapshot.get("comments") or 0)
+        + (snapshot.get("shares")   or 0)
+        + (snapshot.get("saved")    or 0)
+    )
+    return total / reach
+
+
+def _matured_stats(reels: list) -> list:
+    """[(engagement_rate, {lowercased Last.fm tags}), ...] for snapshotted reels."""
+    stats = []
+    for r in reels:
+        snap = r.get("snapshot_24h")
+        if snap is None:
+            continue
+        tags = {
+            t.lower()
+            for t in ((r.get("external_metadata") or {}).get("tags") or [])
+        }
+        stats.append((_engagement_rate(snap), tags))
+    return stats
+
+
+def _account_perf_score(track: dict, matured: list) -> float:
+    """
+    0–1 score: how reels with similar songs (sharing a Last.fm tag) have
+    performed on this account, relative to the account average.
+      0.5 = neutral (no data, no tags, or exactly average)
+      1.0 = similar songs got ≥2× the account-average engagement
+    Shrunk toward 0.5 when only a few similar reels exist.
+    """
+    if not matured:
+        return 0.5
+    account_avg = sum(rate for rate, _ in matured) / len(matured)
+    if account_avg <= 0:
+        return 0.5
+
+    tags = {
+        t.lower()
+        for t in ((track.get("_lastfm") or {}).get("tags") or [])
+    }
+    if not tags:
+        return 0.5
+
+    similar = [rate for rate, rtags in matured if rtags & tags]
+    if not similar:
+        return 0.5
+
+    relative   = (sum(similar) / len(similar)) / account_avg
+    raw        = max(0.0, min(1.0, relative / 2.0))
+    confidence = min(1.0, len(similar) / 5.0)
+    return 0.5 + confidence * (raw - 0.5)
+
+
 def _score_candidate(
     track: dict,
     key: str,
     rank_0based: int,
     n: int,
     candidate_history: list,
-    account_avg_eng: float,
-    confidence: float,
+    matured: list,
 ) -> dict:
     """
     Calculate all five scoring signals for one candidate.
@@ -568,12 +694,11 @@ def _score_candidate(
     C = W_TREND_PERSISTENCE * persist
 
     # D — My-account Performance (25%)
-    # Scored at account-average level (no artist/duration proxies).
-    # Exact song-match is impossible for new songs — baseline = account avg.
-    if account_avg_eng > 0 and confidence > 0:
-        D = W_ACCOUNT_PERF * confidence * min(account_avg_eng / 0.20, 1.0)
-    else:
-        D = 0.0
+    # How past reels with tag-similar songs performed vs the account average.
+    # (The old version used the account-wide average, which was identical for
+    # every candidate and so never affected which song won.)
+    perf_score = _account_perf_score(track, matured)
+    D = W_ACCOUNT_PERF * perf_score
 
     # E — External Popularity via Last.fm (10%)
     lastfm = track.get("_lastfm")
@@ -600,6 +725,7 @@ def _score_candidate(
         "rank_score":    rank_score,
         "move_score":    movement_score,
         "persist_score": persist,
+        "perf_score":    perf_score,
         "prev_rank":     prev_rank,
     }
 
@@ -639,6 +765,7 @@ def snapshot_mature_reels(state: ReelState) -> ReelState:
             insights = _fetch_insights(reel_id)
             record["snapshot_24h"] = {
                 "fetched_at": now.isoformat() + "Z",
+                "views":      insights.get("views"),
                 "plays":      insights.get("plays"),
                 "reach":      insights.get("reach"),
                 "likes":      insights.get("likes"),
@@ -649,7 +776,7 @@ def snapshot_mature_reels(state: ReelState) -> ReelState:
             snapped += 1
             print(
                 f"  [SNAPPED] '{title}' reel={reel_id}"
-                f"  plays={insights.get('plays')}"
+                f"  views={insights.get('views')}"
                 f"  reach={insights.get('reach')}"
                 f"  likes={insights.get('likes')}"
                 f"  [LOCKED FOREVER]"
@@ -781,14 +908,8 @@ def select_music(state: ReelState) -> ReelState:
         title  = track.get("title") or track.get("name") or "Unknown"
         artist = track.get("artist") or ""
 
-        # Check all three key tiers
-        meta_id = track.get("audio_id") or track.get("id")
-        mbid    = (lastfm or {}).get("mbid")
-        rejected = (
-            key in used_keys
-            or (meta_id and f"meta:{meta_id}" in used_keys)
-            or (mbid    and f"mbid:{mbid}"    in used_keys)
-        )
+        # Check all three key tiers (meta id, MusicBrainz id, title|artist)
+        rejected = bool(_all_song_keys(track, lastfm) & used_keys)
 
         if rejected:
             print(f"  REJECTED (already used): '{title}' by {artist} [key={key}]")
@@ -806,47 +927,25 @@ def select_music(state: ReelState) -> ReelState:
     print(f"  {len(fresh)} candidate(s) remain after exclusions.")
 
     # ── Step E: Score each remaining candidate ────────────────
-    matured = [
-        r for r in history.get("reels", [])
-        if r.get("snapshot_24h") is not None
-    ]
+    matured      = _matured_stats(history.get("reels", []))
+    n            = len(all_tracks)
+    cand_history = history.get("candidate_history", [])
 
-    # Account-wide engagement average (song-level learning — no artist/duration proxy)
-    if matured:
-        eng_rates = []
-        for r in matured:
-            snap   = r["snapshot_24h"]
-            reach  = snap.get("reach") or 1
-            total_eng = (
-                (snap.get("likes")    or 0)
-                + (snap.get("comments") or 0)
-                + (snap.get("shares")   or 0)
-                + (snap.get("saved")    or 0)
-            )
-            eng_rates.append(total_eng / reach)
-        account_avg_eng = sum(eng_rates) / len(eng_rates)
-    else:
-        account_avg_eng = 0.0
-
-    confidence       = min(1.0, len(matured) / 10.0)
-    n                = len(all_tracks)
-    cand_history     = history.get("candidate_history", [])
+    print(f"  Matured reels with insights: {len(matured)}")
 
     for track in fresh:
-        key       = track["_key"]
-        rank_idx  = next(
-            (i for i, t in enumerate(all_tracks)
-             if _song_key(t) == key),
+        key      = track["_key"]
+        rank_idx = next(
+            (i for i, t in enumerate(all_tracks) if t is track),
             0,
         )
         track["_scores"] = _score_candidate(
-            track          = track,
-            key            = key,
-            rank_0based    = rank_idx,
-            n              = n,
+            track             = track,
+            key               = key,
+            rank_0based       = rank_idx,
+            n                 = n,
             candidate_history = cand_history,
-            account_avg_eng   = account_avg_eng,
-            confidence        = confidence,
+            matured           = matured,
         )
         track["_final_score"] = track["_scores"]["total"]
         track["_rank_1based"] = rank_idx + 1
@@ -868,6 +967,7 @@ def select_music(state: ReelState) -> ReelState:
             f" | A={s['A']:.3f} B={s['B']:.3f}"
             f" C={s['C']:.3f} D={s['D']:.3f} E={s['E']:.3f}"
             f" | rank=#{t['_rank_1based']} {move_str}"
+            f" | tags={(t.get('_lastfm') or {}).get('tags')}"
             f" | listeners={listeners}"
         )
 
@@ -903,13 +1003,6 @@ def select_music(state: ReelState) -> ReelState:
     print(f"  key={sel_key}")
     print(f"  score={selected['_final_score']:.3f}")
     print(f"  {reason}")
-
-    if not selected.get("download_url"):
-        print(
-            "WARNING: Selected track has no download_url. "
-            "Music portion in local video will be silent, "
-            "but audio_id will still be attached on Instagram."
-        )
 
     # ── Save candidate history for this run ───────────────────
     history.setdefault("candidate_history", []).append({
@@ -955,6 +1048,7 @@ def select_music(state: ReelState) -> ReelState:
         "audio_duration":     duration,
         "selected_score":     selected["_final_score"],
         "selection_reason":   reason,
+        "selection_mode":     "auto",
         "last_candidate_keys": [c["key"] for c in current_run_candidates],
     }
 
@@ -1011,7 +1105,6 @@ def _build_short_hook(audio_title: str) -> str:
     e.g. 'Blinding Lights' -> '🎵 Blinding Lights on repeat ✨'
     """
     # Strip featured-artist suffixes like '(feat. ...)'  / '[prod. ...]'
-    import re
     clean = re.sub(
         r"[\(\[][^)\]]*[\)\]]",
         "",
@@ -1038,16 +1131,46 @@ def generate_caption(state: ReelState):
     hook = _build_short_hook(audio_title)
     print(f"  Hook: {hook}")
 
-    # --- fetch trending hashtags from Meta ---
+    # --- hashtag post counts (cached; they barely change day to day) ---
     tag_data: list[tuple[int, str]] = []  # (media_count, "#name")
 
+    history = load_history()
+    cache   = history.setdefault("hashtag_cache", {})
+    now     = datetime.utcnow()
+    fetched = 0
+
     for seed in _HASHTAG_SEEDS:
-        hid = _fetch_hashtag_id(seed)
-        if not hid:
-            continue
-        count = _fetch_hashtag_media_count(hid)
+        entry = cache.get(seed)
+        fresh = False
+        if entry:
+            try:
+                cached_at = datetime.fromisoformat(
+                    entry["cached_at"].replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+                fresh = (now - cached_at).days < HASHTAG_CACHE_TTL_DAYS
+            except (KeyError, ValueError):
+                fresh = False
+
+        if fresh:
+            count = int(entry.get("media_count") or 0)
+            print(f"  #{seed}: {count:,} posts (cached)")
+        else:
+            hid = _fetch_hashtag_id(seed)
+            if not hid:
+                continue
+            count = _fetch_hashtag_media_count(hid)
+            if count:
+                cache[seed] = {
+                    "media_count": count,
+                    "cached_at":   now.isoformat() + "Z",
+                }
+                fetched += 1
+            print(f"  #{seed}: {count:,} posts")
+
         tag_data.append((count, f"#{seed}"))
-        print(f"  #{seed}: {count:,} posts")
+
+    if fetched:
+        save_history(history)
 
     # Sort by media_count descending, keep top 4
     tag_data.sort(key=lambda x: x[0], reverse=True)
@@ -1137,20 +1260,6 @@ def calculate_video_duration(state: ReelState):
 # BUILD VIDEO
 # ============================================================
 
-def download_catalog_audio(url: str, dest: Path) -> None:
-    """Download the catalog audio MP4 from Meta CDN."""
-    print(f"\nDownloading catalog audio...")
-
-    response = requests.get(url, stream=True, timeout=120)
-    response.raise_for_status()
-
-    with open(dest, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024 * 256):
-            f.write(chunk)
-
-    print(f"Catalog audio saved: {dest}")
-
-
 def build_video(state: ReelState):
 
     print("\n=== BUILD VIDEO ===")
@@ -1178,22 +1287,30 @@ def build_video(state: ReelState):
     temp_dir = Path("reel_tmp")
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    normalized      = temp_dir / "normalized.mp4"
-    loop_segment    = temp_dir / "loop_segment.mp4"
-    catalog_audio   = temp_dir / "catalog_audio.mp4"
+    normalized      = temp_dir / "normalized.mp4"      # video only
+    loop_segment    = temp_dir / "loop_segment.mp4"    # video only
+    concatenated    = temp_dir / "concatenated.mp4"    # video only
     asset_audio_seg = temp_dir / "asset_audio.aac"
     mixed_audio     = temp_dir / "mixed_audio.aac"
+
+    # Intermediates are encoded near-lossless (CRF 12) so the final encode
+    # is the only one that visibly costs quality.
+    intermediate_x264 = [
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "12",
+        "-pix_fmt", "yuv420p",
+    ]
 
     try:
 
         # --------------------------------------------------------
-        # Normalize video (keep asset audio track for first segment)
+        # Normalize video to exact 9:16 portrait, video stream only.
+        # 'force_original_aspect_ratio=increase' + 'crop' fills the frame
+        # completely — no black bars. Audio is handled separately below,
+        # so every file going into the concat has the same single stream.
         # --------------------------------------------------------
 
-        # Scale to exact portrait (9:16) dimensions for Instagram Reels.
-        # 'force_original_aspect_ratio=increase' scales up so both dimensions
-        # meet the target, then 'crop' center-crops the overshoot.
-        # Result: frame is always 100% filled — no black bars.
         run([
             "ffmpeg", "-y",
             "-i", asset,
@@ -1205,17 +1322,13 @@ def build_video(state: ReelState):
                 "setsar=1"
             ),
             "-r", str(FPS),
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-movflags", "+faststart",
+            "-an",
+            *intermediate_x264,
             str(normalized),
         ])
 
         # --------------------------------------------------------
-        # Extract loop segment (video only — audio handled separately)
+        # Extract loop segment
         # --------------------------------------------------------
 
         loop_duration = asset_duration - loop_start
@@ -1226,9 +1339,7 @@ def build_video(state: ReelState):
             "-i", str(normalized),
             "-t", str(loop_duration),
             "-an",
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-pix_fmt", "yuv420p",
+            *intermediate_x264,
             str(loop_segment),
         ])
 
@@ -1249,7 +1360,6 @@ def build_video(state: ReelState):
             for _ in range(repeat_count):
                 f.write(f"file '{loop_segment.resolve()}'\n")
 
-        concatenated = temp_dir / "concatenated.mp4"
         run([
             "ffmpeg", "-y",
             "-f", "concat",
@@ -1260,46 +1370,41 @@ def build_video(state: ReelState):
         ])
 
         # --------------------------------------------------------
-        # Download catalog audio from Meta CDN
-        # --------------------------------------------------------
-
-        catalog_download_url = state["audio_metadata"].get("download_url")
-
-        if catalog_download_url:
-            download_catalog_audio(catalog_download_url, catalog_audio)
-        else:
-            # No download URL: use silence for the music portion
-            print("WARNING: No download_url for catalog audio. Music portion will be silent.")
-            catalog_audio = None
-
-        # --------------------------------------------------------
-        # Build audio track for the video file:
-        #   0 -> MUSIC_START_SECONDS : original asset audio
-        #   MUSIC_START_SECONDS -> final_duration : silence
+        # Build the embedded audio track:
+        #   0 -> MUSIC_START_SECONDS : original asset audio (boosted)
+        #   MUSIC_START_SECONDS -> end : silence
         #
-        # Why silence instead of catalog music?
-        # On Instagram, audio_configuration plays the catalog track.
-        # Setting video_volume=100 lets Instagram mix this embedded audio
-        # (asset clip sound for 5s, then silence) with the catalog music.
-        # Result on Instagram: 5s asset audio + catalog, then catalog only.
+        # The catalog song is NOT mixed in locally. Instagram plays it via
+        # audio_configuration (create_reel_container); video_volume=100 keeps
+        # this embedded intro audible on top. So nothing is downloaded here.
         # --------------------------------------------------------
 
-        # Extract asset audio for the intro segment and boost its volume
-        # so the original clip audio is clearly audible in the first 5s.
-        run([
-            "ffmpeg", "-y",
-            "-i", str(normalized),
-            "-t", str(MUSIC_START_SECONDS),
-            "-vn",
-            "-af", f"volume={ASSET_AUDIO_BOOST}",
-            "-acodec", "aac",
-            "-b:a", "192k",
-            str(asset_audio_seg),
-        ])
+        if _has_audio_stream(asset):
+            run([
+                "ffmpeg", "-y",
+                "-i", asset,
+                "-t", str(MUSIC_START_SECONDS),
+                "-vn",
+                "-af", f"volume={ASSET_AUDIO_BOOST},aresample=44100",
+                "-ac", "2",
+                "-acodec", "aac",
+                "-b:a", "192k",
+                str(asset_audio_seg),
+            ])
+        else:
+            print("Asset has no audio stream — intro will be silent.")
+            run([
+                "ffmpeg", "-y",
+                "-f", "lavfi",
+                "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", str(MUSIC_START_SECONDS),
+                "-acodec", "aac",
+                "-b:a", "192k",
+                str(asset_audio_seg),
+            ])
 
         music_duration = final_duration - MUSIC_START_SECONDS
 
-        # Generate silence for the catalog music portion
         silence_seg = temp_dir / "silence.aac"
         run([
             "ffmpeg", "-y",
@@ -1327,11 +1432,10 @@ def build_video(state: ReelState):
         ])
 
         # --------------------------------------------------------
-        # Mux video + audio into final output, trimmed to final_duration
+        # Final encode + mux, trimmed to final_duration.
+        # Frames are already 1080x1920 @ FPS, so no scale/crop here.
         # --------------------------------------------------------
 
-        # Final mux: enforce exact 1080x1920 portrait output for Instagram Reels.
-        # scale+crop fills the frame completely — no black bars.
         run([
             "ffmpeg", "-y",
             "-i", str(concatenated),
@@ -1339,13 +1443,6 @@ def build_video(state: ReelState):
             "-t", str(final_duration),
             "-map", "0:v:0",
             "-map", "1:a:0",
-            "-vf",
-            (
-                f"scale={WIDTH}:{HEIGHT}:"
-                "force_original_aspect_ratio=increase,"
-                f"crop={WIDTH}:{HEIGHT},"
-                "setsar=1"
-            ),
             "-c:v", "libx264",
             "-preset", "medium",
             "-pix_fmt", "yuv420p",
@@ -1385,13 +1482,8 @@ def build_video(state: ReelState):
 # UPLOAD VIDEO TO GOOGLE DRIVE & GET PUBLIC URL
 # ============================================================
 
-def upload_to_drive(state: ReelState):
-
-    print("\n=== UPLOAD TO GOOGLE DRIVE ===")
-
-    output = state["output_video"]
-
-    # Build credentials from .env tokens
+def _drive_service():
+    """Drive v3 client from the refresh token in the environment."""
     creds = Credentials(
         token=None,
         refresh_token=os.getenv("DRIVE_REFRESH_TOKEN"),
@@ -1400,16 +1492,22 @@ def upload_to_drive(state: ReelState):
         token_uri="https://oauth2.googleapis.com/token",
         scopes=["https://www.googleapis.com/auth/drive.file"],
     )
-
-    # Auto-refresh the access token
     creds.refresh(GoogleRequest())
-
-    service = gdrive_build(
+    return gdrive_build(
         "drive",
         "v3",
         credentials=creds,
         cache_discovery=False,
     )
+
+
+def upload_to_drive(state: ReelState):
+
+    print("\n=== UPLOAD TO GOOGLE DRIVE ===")
+
+    output = state["output_video"]
+
+    service = _drive_service()
 
     file_metadata = {
         "name": Path(output).name,
@@ -1451,10 +1549,13 @@ def upload_to_drive(state: ReelState):
         },
     ).execute()
 
-    # Direct download URL — works for files under ~100MB without auth
+    # Direct download URL. The drive.usercontent host with confirm=t skips
+    # the "can't scan for viruses" interstitial that the old
+    # drive.google.com/uc link serves for larger files — Meta would fetch
+    # that HTML page instead of the MP4 and the container would fail.
     public_url = (
-        f"https://drive.google.com/uc"
-        f"?export=download&id={file_id}"
+        "https://drive.usercontent.google.com/download"
+        f"?id={file_id}&export=download&confirm=t"
     )
 
     print(
@@ -1465,6 +1566,7 @@ def upload_to_drive(state: ReelState):
     return {
         **state,
         "video_public_url": public_url,
+        "drive_file_id": file_id,
     }
 
 
@@ -1691,6 +1793,33 @@ def publish_reel(state: ReelState):
 
 
 # ============================================================
+# NODE — CLEAN UP DRIVE
+# (after publish: Meta has already fetched the video)
+# ============================================================
+
+def cleanup_drive(state: ReelState) -> ReelState:
+    """
+    Delete the uploaded MP4 from Google Drive. By this point the container
+    is FINISHED, so Meta has its own copy. Without this, every run leaves a
+    publicly shared file behind (6 per day). Non-fatal.
+    """
+    print("\n=== CLEAN UP DRIVE ===")
+
+    file_id = state.get("drive_file_id")
+    if not file_id:
+        print("  No Drive file from this run — nothing to delete.")
+        return state
+
+    try:
+        _drive_service().files().delete(fileId=file_id).execute()
+        print(f"  Deleted Drive file {file_id}")
+    except Exception as exc:
+        print(f"  [WARNING] Could not delete Drive file {file_id}: {exc}")
+
+    return state
+
+
+# ============================================================
 # NODE — RECORD NEW REEL
 # (runs after publish_reel, before END)
 # ============================================================
@@ -1739,12 +1868,8 @@ def record_new_reel(state: ReelState) -> ReelState:
     # Register all three key tiers so the song can never be selected again
     used = set(history.get("used_song_keys", []))
     used.add(key)
-    meta_id = audio_meta.get("audio_id") or audio_meta.get("id")
-    if meta_id:
-        used.add(f"meta:{meta_id}")
-    if lastfm and lastfm.get("mbid"):
-        used.add(f"mbid:{lastfm['mbid']}")
-    history["used_song_keys"] = list(used)
+    used |= _all_song_keys(audio_meta, lastfm)
+    history["used_song_keys"] = sorted(used)
 
     # Update last_candidate_keys in history
     history["last_candidate_keys"] = state.get("last_candidate_keys", [])
@@ -1798,7 +1923,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
     # ── BRANCH A: numeric audio_id supplied ─────────────────
     if is_numeric:
         candidate_key = f"meta:{raw_input}"
-        if candidate_key in used_keys or raw_input in used_keys:
+        if candidate_key in used_keys:
             raise RuntimeError(
                 f"MANUAL mode: audio_id '{raw_input}' has already been "
                 f"published and is permanently excluded from reuse."
@@ -1839,6 +1964,12 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
             )
 
         track = metadata
+
+        if _all_song_keys(track) & used_keys:
+            raise RuntimeError(
+                f"MANUAL mode: '{title}' by {artist} has already been "
+                f"published (matched by title/artist) and cannot be reused."
+            )
 
     # ── BRANCH B: song title — search Meta catalog ───────────
     else:
@@ -1914,8 +2045,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
             f"[audio_id={real_id}  score={best_score:.2f}]"
         )
 
-        key_check = f"meta:{real_id}"
-        if key_check in used_keys or real_id in used_keys:
+        if _all_song_keys(track) & used_keys:
             raise RuntimeError(
                 f"'{raw_input}' (audio_id={real_id}) has already been "
                 f"published and cannot be reused."
@@ -1942,13 +2072,6 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
     print(f"\n  MANUAL SELECTED: '{display_title}' by {display_artist}")
     print(f"  audio_id : {final_audio_id}")
     print(f"  Duration : {duration:.2f}s")
-
-    if not track.get("download_url"):
-        print(
-            "  WARNING: No download_url for this track. "
-            "Music will be silent in local video, "
-            "but audio_id is still attached on Instagram."
-        )
 
     track["_meta_rank"]      = None
     track["_lastfm"]         = None
@@ -2004,6 +2127,7 @@ def build_graph():
     graph.add_node("create_reel_container",   create_reel_container)
     graph.add_node("wait_for_container",      wait_for_container)
     graph.add_node("publish_reel",            publish_reel)
+    graph.add_node("cleanup_drive",           cleanup_drive)
 
     # ── Entry point ───────────────────────────────────────────
     graph.set_entry_point("snapshot_mature_reels")
@@ -2031,7 +2155,8 @@ def build_graph():
     graph.add_edge("check_public_video_url",   "create_reel_container")
     graph.add_edge("create_reel_container",    "wait_for_container")
     graph.add_edge("wait_for_container",       "publish_reel")
-    graph.add_edge("publish_reel",             "record_new_reel")
+    graph.add_edge("publish_reel",             "cleanup_drive")
+    graph.add_edge("cleanup_drive",            "record_new_reel")
     graph.add_edge("record_new_reel",          END)
 
     return graph.compile()
@@ -2116,10 +2241,21 @@ if __name__ == "__main__":
 
     except Exception as e:
 
-        print(
-            "\nERROR:"
-        )
+        import traceback
 
-        print(e)
+        print("\nERROR:")
+        traceback.print_exc()
+
+        # On GitHub Actions, also emit an annotation so the failure reason
+        # shows on the run summary page (and via the checks API) without
+        # having to dig through the full log.
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            msg = f"{type(e).__name__}: {e}"
+            msg = (
+                msg.replace("%", "%25")
+                   .replace("\r", "%0D")
+                   .replace("\n", "%0A")
+            )[:4000]
+            print(f"::error title=Reel builder failed::{msg}")
 
         sys.exit(1)
