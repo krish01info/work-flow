@@ -99,22 +99,40 @@ LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "").strip()
 
 # ── Scoring weights (must sum to 1.0) ─────────────────────
 # Override via env vars in generate-video.yml if needed.
-W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.30"))
-W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.20"))
-W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.15"))
-W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.25"))
-W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.10"))
+# W_MOOD_FIT favours songs that land the "are ya winning son?" joke
+# (sad / emo / heartbreak first). It is the biggest single signal because
+# in this format the song choice IS the punchline.
+W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.25"))
+W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.10"))
+W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.10"))
+W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.20"))
+W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.05"))
+W_MOOD_FIT          = float(os.getenv("W_MOOD_FIT",          "0.30"))
 EXPLORATION_RATE    = float(os.getenv("EXPLORATION_RATE",    "0.10"))
 
 _W_SUM = (
     W_TREND_RANK + W_RANK_MOVEMENT + W_TREND_PERSISTENCE
-    + W_ACCOUNT_PERF + W_EXTERNAL_POP
+    + W_ACCOUNT_PERF + W_EXTERNAL_POP + W_MOOD_FIT
 )
 if abs(_W_SUM - 1.0) > 0.01:
     print(
         f"[WARNING] Scoring weights sum to {_W_SUM:.3f}, not 1.0. "
         "Scores will still rank correctly but totals won't be 0–1."
     )
+
+# ── On-screen text + framing for the "are ya winning son?" format ──
+FONT_PATH = os.getenv("FONT_PATH", "assets/Anton-Regular.ttf")
+# Burned in over the dad shot (helps the ~half of viewers watching muted).
+INTRO_TEXT = os.getenv("INTRO_TEXT", "are ya winning, son?").strip()
+# Set to "false" to disable the punchline over the son shot.
+PUNCHLINE_ENABLED = os.getenv("PUNCHLINE_ENABLED", "true").lower() == "true"
+# When the camera leaves the dad and starts panning over the son's room.
+SON_SHOT_START = float(os.getenv("SON_SHOT_START", "5.0"))
+# Horizontal slice of the source (0–1) kept for the son shot. The pan
+# covers the son, laptop and doorway, which is too wide for a 9:16 crop,
+# so this slice is shown full-width over a blurred copy of the frame.
+SON_CROP_X0 = float(os.getenv("SON_CROP_X0", "0.25"))
+SON_CROP_X1 = float(os.getenv("SON_CROP_X1", "0.80"))
 
 # Hashtag counts barely move day to day — cache them to save API calls.
 HASHTAG_CACHE_TTL_DAYS = int(os.getenv("HASHTAG_CACHE_TTL_DAYS", "7"))
@@ -193,6 +211,8 @@ class ReelState(TypedDict, total=False):
     media_id: str
 
     caption: str
+    punchline: str
+    song_mood: str
 
     status: str
     error: str
@@ -662,6 +682,131 @@ def _account_perf_score(track: dict, matured: list) -> float:
     return 0.5 + confidence * (raw - 0.5)
 
 
+# ============================================================
+# MOOD FIT — does this song land the "are ya winning son?" joke?
+# ============================================================
+#
+# The format: dad asks "are ya winning, son?" → song drops → son lying on
+# the floor in headphones. The joke works when the song says "no, he is
+# not winning". Sad / emo / heartbreak songs land hardest; brooding hype
+# (phonk, villain-arc) and love/nostalgia songs also work; upbeat party
+# songs kill the joke.
+
+_MOOD_TAGS = {
+    "sad": {
+        "sad", "emo", "melancholy", "melancholic", "depressing", "depressive",
+        "heartbreak", "heartbroken", "breakup", "break up", "emotional",
+        "lonely", "loneliness", "crying", "sad songs", "slowed", "slowcore",
+        "bedroom pop", "sadcore", "midwest emo", "dark", "mellow",
+    },
+    "hype": {
+        "phonk", "drift phonk", "metal", "trap", "drill", "aggressive",
+        "hardcore", "rage", "dark trap", "workout", "gym",
+    },
+    "love": {
+        "love", "romantic", "love songs", "love song", "romance", "crush",
+    },
+    "nostalgic": {
+        "nostalgia", "nostalgic", "80s", "90s", "00s", "oldies", "classic",
+        "throwback", "classic rock", "retro", "synthwave",
+    },
+    "happy": {
+        "happy", "party", "dance", "upbeat", "feel good", "summer", "fun",
+        "club", "edm", "house",
+    },
+}
+
+# Title words used when Last.fm has no tags for a song.
+_MOOD_TITLE_WORDS = {
+    "sad":       {"sad", "cry", "crying", "tears", "alone", "lonely", "miss",
+                  "goodbye", "broken", "hurt", "pain", "lost", "without",
+                  "gone", "empty", "die", "dying", "sorry", "heartbreak"},
+    "hype":      {"villain", "phonk", "rage", "kill", "war", "demon"},
+    "love":      {"love", "lover", "baby", "darling", "heart", "kiss"},
+    "nostalgic": {"remember", "memories", "yesterday", "summertime", "old"},
+    "happy":     {"party", "dance", "happy", "celebrate", "fun"},
+}
+
+_MOOD_SCORE = {
+    "sad":       1.0,
+    "hype":      0.7,
+    "love":      0.65,
+    "nostalgic": 0.6,
+    "unknown":   0.4,
+    "happy":     0.1,
+}
+
+
+def _song_mood(track: dict) -> str:
+    """Classify a track into one of the _MOOD_SCORE buckets."""
+    tags = {
+        t.lower().strip()
+        for t in ((track.get("_lastfm") or {}).get("tags") or [])
+    }
+    if tags:
+        # Priority order: sad beats everything, happy only if nothing else.
+        for mood in ("sad", "hype", "love", "nostalgic", "happy"):
+            if tags & _MOOD_TAGS[mood]:
+                return mood
+
+    words = set(_normalise(track.get("title") or track.get("name") or "").split())
+    for mood in ("sad", "hype", "love", "nostalgic", "happy"):
+        if words & _MOOD_TITLE_WORDS[mood]:
+            return mood
+
+    return "unknown"
+
+
+# On-screen punchlines, shown over the son shot after the song drops.
+# Keep them short (they're burned into the video at a large size).
+_PUNCHLINES = {
+    "sad": [
+        "he is NOT winning",
+        "nah he's losing pretty bad",
+        "3am. same song. 47th time.",
+        "she left him on read 6 hours ago",
+        "he said he's fine btw",
+        "bro is going through it",
+        "losing. badly. on repeat.",
+        "the boss fight was his ex",
+    ],
+    "hype": [
+        "he's not sad. he's plotting.",
+        "villain arc loading...",
+        "winning? he's about to.",
+        "bro entered his villain era",
+    ],
+    "love": [
+        "he caught feelings. again.",
+        "she said 'hi' once",
+        "losing to his own feelings",
+        "bro is down bad",
+    ],
+    "nostalgic": [
+        "bro is stuck in 2016",
+        "missing a life he never lived",
+        "he's in his memories again",
+    ],
+    "happy": [
+        "define winning",
+        "he's winning. emotionally? no.",
+    ],
+    "unknown": [
+        "define winning",
+        "he's... winning? kinda?",
+        "this is what winning looks like",
+        "bro is NOT winning",
+    ],
+}
+
+
+def _pick_punchline(mood: str, recent: list) -> str:
+    """Random punchline for the mood, avoiding ones used recently."""
+    pool   = _PUNCHLINES.get(mood) or _PUNCHLINES["unknown"]
+    unused = [p for p in pool if p not in set(recent)]
+    return random.choice(unused or pool)
+
+
 def _score_candidate(
     track: dict,
     key: str,
@@ -715,13 +860,20 @@ def _score_candidate(
     else:
         E = 0.0
 
+    # F — Mood fit for the "are ya winning son?" format (30%)
+    mood       = _song_mood(track)
+    mood_score = _MOOD_SCORE[mood]
+    F = W_MOOD_FIT * mood_score
+
     return {
         "A":             A,
         "B":             B,
         "C":             C,
         "D":             D,
         "E":             E,
-        "total":         A + B + C + D + E,
+        "F":             F,
+        "mood":          mood,
+        "total":         A + B + C + D + E + F,
         "rank_score":    rank_score,
         "move_score":    movement_score,
         "persist_score": persist,
@@ -966,6 +1118,7 @@ def select_music(state: ReelState) -> ReelState:
             f" | score={t['_final_score']:.3f}"
             f" | A={s['A']:.3f} B={s['B']:.3f}"
             f" C={s['C']:.3f} D={s['D']:.3f} E={s['E']:.3f}"
+            f" F={s['F']:.3f} ({s['mood']})"
             f" | rank=#{t['_rank_1based']} {move_str}"
             f" | tags={(t.get('_lastfm') or {}).get('tags')}"
             f" | listeners={listeners}"
@@ -995,6 +1148,8 @@ def select_music(state: ReelState) -> ReelState:
         f" C={sel_s['C']:.3f}"
         f" D={sel_s['D']:.3f}"
         f" E={sel_s['E']:.3f}"
+        f" F={sel_s['F']:.3f}"
+        f" mood={sel_s['mood']}"
         f" listeners={listeners}"
         f" mode={expl_str}"
     )
@@ -1065,8 +1220,9 @@ _HASHTAG_SEEDS = [
     "fyp", "explorepage", "newmusic",
 ]
 
-# Always append these regardless of API result
-_FIXED_TAGS = ["#reels", "#songs", "#viral"]
+# Always append these regardless of API result. Niche tags first — they're
+# far less crowded than #viral/#fyp, so the format can actually be found.
+_FIXED_TAGS = ["#areyouwinningson", "#relatable", "#songs", "#reels"]
 
 
 def _fetch_hashtag_id(tag: str) -> Optional[str]:
@@ -1099,37 +1255,26 @@ def _fetch_hashtag_media_count(hashtag_id: str) -> int:
         return 0
 
 
-def _build_short_hook(audio_title: str) -> str:
-    """
-    Build a ≤7-word hook from the audio title.
-    e.g. 'Blinding Lights' -> '🎵 Blinding Lights on repeat ✨'
-    """
-    # Strip featured-artist suffixes like '(feat. ...)'  / '[prod. ...]'
-    clean = re.sub(
-        r"[\(\[][^)\]]*[\)\]]",
-        "",
-        audio_title,
-    ).strip()
-
-    words = clean.split()
-
-    # Keep at most 4 title words so hook stays within 6-7 total
-    title_part = " ".join(words[:4])
-
-    hook = f"🎵 {title_part} on repeat ✨"
-
-    return hook
-
-
 def generate_caption(state: ReelState):
 
     print("\n=== GENERATE CAPTION ===")
 
     audio_title = state.get("audio_title", "")
+    audio_meta  = state.get("audio_metadata") or {}
 
-    # --- short hook (≤7 words) ---
-    hook = _build_short_hook(audio_title)
-    print(f"  Hook: {hook}")
+    # --- punchline: picked from the song's mood, shown on screen + caption ---
+    mood   = _song_mood(audio_meta)
+    recent = [
+        r.get("punchline")
+        for r in load_history().get("reels", [])[-6:]
+        if r.get("punchline")
+    ]
+    punchline = _pick_punchline(mood, recent)
+    print(f"  Mood:      {mood}")
+    print(f"  Punchline: {punchline}")
+
+    clean_title = re.sub(r"[\(\[][^)\]]*[\)\]]", "", audio_title).strip()
+    hook = f"{punchline} 😭\n🎵 {clean_title}" if clean_title else f"{punchline} 😭"
 
     # --- hashtag post counts (cached; they barely change day to day) ---
     tag_data: list[tuple[int, str]] = []  # (media_count, "#name")
@@ -1172,9 +1317,9 @@ def generate_caption(state: ReelState):
     if fetched:
         save_history(history)
 
-    # Sort by media_count descending, keep top 4
+    # Sort by media_count descending, keep top 2 (the niche tags matter more)
     tag_data.sort(key=lambda x: x[0], reverse=True)
-    top_tags = [t for _, t in tag_data[:4]]
+    top_tags = [t for _, t in tag_data[:2]]
 
     # Merge with fixed tags, deduplicate, keep order
     all_tags: list[str] = []
@@ -1193,7 +1338,9 @@ def generate_caption(state: ReelState):
 
     return {
         **state,
-        "caption": caption,
+        "caption":   caption,
+        "punchline": punchline,
+        "song_mood": mood,
     }
 
 
@@ -1260,6 +1407,73 @@ def calculate_video_duration(state: ReelState):
 # BUILD VIDEO
 # ============================================================
 
+def _wrap_text(text: str, max_chars: int) -> list:
+    lines, line = [], ""
+    for word in text.split():
+        if line and len(line) + 1 + len(word) > max_chars:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _text_overlay_filter(
+    temp_dir: Path,
+    intro_text: str,
+    punchline: str,
+    switch_at: float,
+) -> str:
+    """
+    drawtext chain:
+      0 -> switch_at : intro_text in the lower third (over the dad shot)
+      switch_at -> end : punchline in the blurred band at the top
+    One drawtext per line so every line is centred. Text goes through
+    textfile= so quotes/colons in it never need ffmpeg escaping.
+    Returns "" if there is no font or no text.
+    """
+    if not Path(FONT_PATH).exists():
+        print(f"WARNING: font not found at {FONT_PATH} — skipping text overlays.")
+        return ""
+
+    font = Path(FONT_PATH).resolve().as_posix().replace(":", "\\:")
+    filters = []
+    n = 0
+
+    def add_block(text, size, y_start, enable):
+        nonlocal n
+        line_h = int(size * 1.15)
+        for i, line in enumerate(_wrap_text(text, 20)):
+            tf = (temp_dir / f"text_{n}.txt").resolve()
+            tf.write_text(line, encoding="utf-8")
+            n += 1
+            filters.append(
+                "drawtext="
+                f"fontfile='{font}':"
+                f"textfile='{tf.as_posix()}':"
+                f"fontsize={size}:fontcolor=white:"
+                f"borderw={max(4, size // 14)}:bordercolor=black:"
+                "x=(w-text_w)/2:"
+                f"y={y_start + i * line_h}:"
+                f"enable='{enable}'"
+            )
+
+    if intro_text:
+        add_block(
+            intro_text.upper(), int(WIDTH * 0.085),
+            int(HEIGHT * 0.66), f"lt(t,{switch_at})",
+        )
+    if punchline:
+        add_block(
+            punchline.upper(), int(WIDTH * 0.09),
+            int(HEIGHT * 0.13), f"gte(t,{switch_at})",
+        )
+
+    return ",".join(filters)
+
+
 def build_video(state: ReelState):
 
     print("\n=== BUILD VIDEO ===")
@@ -1306,22 +1520,48 @@ def build_video(state: ReelState):
 
         # --------------------------------------------------------
         # Normalize video to exact 9:16 portrait, video stream only.
-        # 'force_original_aspect_ratio=increase' + 'crop' fills the frame
-        # completely — no black bars. Audio is handled separately below,
-        # so every file going into the concat has the same single stream.
+        # Audio is handled separately below, so every file going into the
+        # concat has the same single stream.
+        #
+        # Two framings:
+        #   0 -> SON_SHOT_START : dad in the doorway. Centre crop that fills
+        #                         the frame (no black bars) frames him well.
+        #   SON_SHOT_START -> end: camera pans over the son, laptop and door —
+        #                         too wide for a 9:16 crop (it cut off his head
+        #                         and the laptop). Show the SON_CROP_X0..X1
+        #                         slice full-width over a blurred, darkened
+        #                         copy of the frame. The blurred band on top
+        #                         is where the punchline text goes.
         # --------------------------------------------------------
+
+        cover = (
+            f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={WIDTH}:{HEIGHT},setsar=1"
+        )
+        split_at = SON_SHOT_START
+
+        if 0 < split_at < asset_duration - 0.5:
+            x0 = max(0.0, min(SON_CROP_X0, 1.0))
+            x1 = max(x0 + 0.1, min(SON_CROP_X1, 1.0))
+            filter_complex = (
+                f"[0:v]split=2[dadsrc][sonsrc];"
+                f"[dadsrc]trim=0:{split_at},setpts=PTS-STARTPTS,{cover}[dad];"
+                f"[sonsrc]trim=start={split_at},setpts=PTS-STARTPTS,"
+                f"split=2[fgsrc][bgsrc];"
+                f"[fgsrc]crop=iw*{x1 - x0:.4f}:ih:iw*{x0:.4f}:0,"
+                f"scale={WIDTH}:-2,setsar=1[fg];"
+                f"[bgsrc]{cover},gblur=sigma=40,eq=brightness=-0.12[bg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2+{HEIGHT // 20},setsar=1[son];"
+                f"[dad][son]concat=n=2:v=1:a=0,fps={FPS}[v]"
+            )
+        else:
+            filter_complex = f"[0:v]{cover},fps={FPS}[v]"
 
         run([
             "ffmpeg", "-y",
             "-i", asset,
-            "-vf",
-            (
-                f"scale={WIDTH}:{HEIGHT}:"
-                "force_original_aspect_ratio=increase,"
-                f"crop={WIDTH}:{HEIGHT},"
-                "setsar=1"
-            ),
-            "-r", str(FPS),
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
             "-an",
             *intermediate_x264,
             str(normalized),
@@ -1344,21 +1584,34 @@ def build_video(state: ReelState):
         ])
 
         # --------------------------------------------------------
-        # Repeat loop segment to cover final_duration
+        # Repeat loop segment to cover final_duration.
+        # Built as ONE encoded tail with -stream_loop: concatenating dozens of
+        # 0.5 s copies with stream copy dropped a frame per join, so a 30 s
+        # reel came out ~1.4 s short.
         # --------------------------------------------------------
 
         remaining = max(0.0, final_duration - asset_duration)
-        repeat_count = (
-            math.ceil(remaining / loop_duration)
-            if remaining > 0
-            else 0
-        )
-
         concat_files = temp_dir / "concat.txt"
+
+        if remaining > 0:
+            tail = temp_dir / "loop_tail.mp4"
+            run([
+                "ffmpeg", "-y",
+                "-stream_loop", "-1",
+                "-i", str(loop_segment),
+                "-t", f"{remaining + 1.0:.3f}",   # +1 s margin; final -t trims
+                "-an",
+                "-r", str(FPS),
+                *intermediate_x264,
+                str(tail),
+            ])
+            parts = [normalized, tail]
+        else:
+            parts = [normalized]
+
         with open(concat_files, "w", encoding="utf-8") as f:
-            f.write(f"file '{normalized.resolve()}'\n")
-            for _ in range(repeat_count):
-                f.write(f"file '{loop_segment.resolve()}'\n")
+            for part in parts:
+                f.write(f"file '{part.resolve()}'\n")
 
         run([
             "ffmpeg", "-y",
@@ -1433,8 +1686,17 @@ def build_video(state: ReelState):
 
         # --------------------------------------------------------
         # Final encode + mux, trimmed to final_duration.
-        # Frames are already 1080x1920 @ FPS, so no scale/crop here.
+        # Frames are already 1080x1920 @ FPS, so no scale/crop here —
+        # only the burned-in text overlays.
         # --------------------------------------------------------
+
+        text_filter = _text_overlay_filter(
+            temp_dir,
+            intro_text = INTRO_TEXT,
+            punchline  = state.get("punchline") if PUNCHLINE_ENABLED else "",
+            switch_at  = MUSIC_START_SECONDS,
+        )
+        vf_args = ["-vf", text_filter] if text_filter else []
 
         run([
             "ffmpeg", "-y",
@@ -1443,6 +1705,7 @@ def build_video(state: ReelState):
             "-t", str(final_duration),
             "-map", "0:v:0",
             "-map", "1:a:0",
+            *vf_args,
             "-c:v", "libx264",
             "-preset", "medium",
             "-pix_fmt", "yuv420p",
@@ -1854,6 +2117,8 @@ def record_new_reel(state: ReelState) -> ReelState:
         "selection_mode":   state.get("selection_mode", SELECTION_MODE),
         "selected_score":   state.get("selected_score"),
         "selection_reason": state.get("selection_reason", ""),
+        "song_mood":        state.get("song_mood"),
+        "punchline":        state.get("punchline"),
         "meta_rank":        audio_meta.get("_meta_rank"),
         "external_metadata": (
             {k: v for k, v in lastfm.items() if k != "cached_at"}
