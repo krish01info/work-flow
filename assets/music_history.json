@@ -1,96 +1,13 @@
 {
   "version": 3,
   "used_song_keys": [
-    "meta:2292908894894132",
+    "meta:1603242584715331",
     "meta:2154226371972880",
-    "meta:2172765939972901"
+    "meta:2172765939972901",
+    "meta:2292908894894132",
+    "text:empty halfpipe|"
   ],
   "candidate_history": [
-    {
-      "run_at": "2026-10-09T17:40:40.570532Z",
-      "candidates": [
-        {
-          "key": "meta:1718756805864332",
-          "rank": 1
-        },
-        {
-          "key": "meta:1492379226049428",
-          "rank": 2
-        },
-        {
-          "key": "meta:4458357324476106",
-          "rank": 3
-        },
-        {
-          "key": "meta:2340262533471143",
-          "rank": 4
-        },
-        {
-          "key": "meta:1135391705509912",
-          "rank": 5
-        },
-        {
-          "key": "meta:1997994277583926",
-          "rank": 6
-        },
-        {
-          "key": "meta:2234673680598652",
-          "rank": 7
-        },
-        {
-          "key": "meta:2992312904443962",
-          "rank": 8
-        },
-        {
-          "key": "meta:4068671760105468",
-          "rank": 9
-        },
-        {
-          "key": "meta:1081810581324868",
-          "rank": 10
-        },
-        {
-          "key": "meta:2156279331989386",
-          "rank": 11
-        },
-        {
-          "key": "meta:1407526910723500",
-          "rank": 12
-        },
-        {
-          "key": "meta:1371972408257871",
-          "rank": 13
-        },
-        {
-          "key": "meta:1802026384167185",
-          "rank": 14
-        },
-        {
-          "key": "meta:1380420203157832",
-          "rank": 15
-        },
-        {
-          "key": "meta:1898866174223025",
-          "rank": 16
-        },
-        {
-          "key": "meta:257998506674114",
-          "rank": 17
-        },
-        {
-          "key": "meta:4444883799066427",
-          "rank": 18
-        },
-        {
-          "key": "meta:371622248702972",
-          "rank": 19
-        },
-        {
-          "key": "meta:1423455045863787",
-          "rank": 20
-        }
-      ]
-    },
     {
       "run_at": "2026-10-09T23:40:03.915431Z",
       "candidates": [
@@ -2283,6 +2200,811 @@
           "rank": 197
         }
       ]
+    },
+    {
+      "run_at": "2026-10-12T16:43:52.257668Z",
+      "candidates": [
+        {
+          "key": "meta:505703708228220",
+          "rank": 1
+        },
+        {
+          "key": "meta:1088574347238980",
+          "rank": 2
+        },
+        {
+          "key": "meta:1138497598239952",
+          "rank": 3
+        },
+        {
+          "key": "meta:1880031723374513",
+          "rank": 4
+        },
+        {
+          "key": "meta:1387441556706786",
+          "rank": 5
+        },
+        {
+          "key": "meta:2147587542824760",
+          "rank": 6
+        },
+        {
+          "key": "meta:2170947563771888",
+          "rank": 7
+        },
+        {
+          "key": "meta:293906472541148",
+          "rank": 8
+        },
+        {
+          "key": "meta:1621617872973399",
+          "rank": 9
+        },
+        {
+          "key": "meta:2132000117529002",
+          "rank": 10
+        },
+        {
+          "key": "meta:1241304587512302",
+          "rank": 11
+        },
+        {
+          "key": "meta:683474321384896",
+          "rank": 12
+        },
+        {
+          "key": "meta:639014834938286",
+          "rank": 13
+        },
+        {
+          "key": "meta:264685510032411",
+          "rank": 14
+        },
+        {
+          "key": "meta:631091601792429",
+          "rank": 15
+        },
+        {
+          "key": "meta:707176948538552",
+          "rank": 16
+        },
+        {
+          "key": "meta:766355572109757",
+          "rank": 17
+        },
+        {
+          "key": "meta:1582573200177620",
+          "rank": 18
+        },
+        {
+          "key": "meta:799728528926998",
+          "rank": 19
+        },
+        {
+          "key": "meta:1717608872140349",
+          "rank": 20
+        },
+        {
+          "key": "meta:1140511277192286",
+          "rank": 21
+        },
+        {
+          "key": "meta:1126345968385858",
+          "rank": 22
+        },
+        {
+          "key": "meta:1497294547533408",
+          "rank": 23
+        },
+        {
+          "key": "meta:741676760235304",
+          "rank": 24
+        },
+        {
+          "key": "meta:843481004054430",
+          "rank": 25
+        },
+        {
+          "key": "meta:980611379687361",
+          "rank": 26
+        },
+        {
+          "key": "meta:1236276531917391",
+          "rank": 27
+        },
+        {
+          "key": "meta:10071717786179781",
+          "rank": 28
+        },
+        {
+          "key": "meta:1384245180224843",
+          "rank": 29
+        },
+        {
+          "key": "meta:2015042415509914",
+          "rank": 30
+        },
+        {
+          "key": "meta:645551997925278",
+          "rank": 31
+        },
+        {
+          "key": "meta:1682258738491919",
+          "rank": 32
+        },
+        {
+          "key": "meta:1272137963366391",
+          "rank": 33
+        },
+        {
+          "key": "meta:2452317871593305",
+          "rank": 34
+        },
+        {
+          "key": "meta:892517332302957",
+          "rank": 35
+        },
+        {
+          "key": "meta:715871727639153",
+          "rank": 36
+        },
+        {
+          "key": "meta:396038869855594",
+          "rank": 37
+        },
+        {
+          "key": "meta:810609847756039",
+          "rank": 38
+        },
+        {
+          "key": "meta:1233210491181424",
+          "rank": 39
+        },
+        {
+          "key": "meta:257663954054161",
+          "rank": 40
+        },
+        {
+          "key": "meta:1209362676336144",
+          "rank": 41
+        },
+        {
+          "key": "meta:1211221722765582",
+          "rank": 42
+        },
+        {
+          "key": "meta:1898545684218804",
+          "rank": 43
+        },
+        {
+          "key": "meta:1211337449858095",
+          "rank": 44
+        },
+        {
+          "key": "meta:892347103668939",
+          "rank": 45
+        },
+        {
+          "key": "meta:2488666824970706",
+          "rank": 46
+        },
+        {
+          "key": "meta:1282828153798231",
+          "rank": 47
+        },
+        {
+          "key": "meta:750293096316602",
+          "rank": 48
+        },
+        {
+          "key": "meta:1349824246647397",
+          "rank": 49
+        },
+        {
+          "key": "meta:949754374812737",
+          "rank": 50
+        },
+        {
+          "key": "meta:1196222724271295",
+          "rank": 51
+        },
+        {
+          "key": "meta:485596294131932",
+          "rank": 52
+        },
+        {
+          "key": "meta:1368906545226643",
+          "rank": 53
+        },
+        {
+          "key": "meta:1589422295602211",
+          "rank": 54
+        },
+        {
+          "key": "meta:771703697237882",
+          "rank": 55
+        },
+        {
+          "key": "meta:675208868309032",
+          "rank": 56
+        },
+        {
+          "key": "meta:967182757910991",
+          "rank": 57
+        },
+        {
+          "key": "meta:1102201857634072",
+          "rank": 58
+        },
+        {
+          "key": "meta:800280101179299",
+          "rank": 59
+        },
+        {
+          "key": "meta:1071473098598316",
+          "rank": 60
+        },
+        {
+          "key": "meta:904560546038363",
+          "rank": 61
+        },
+        {
+          "key": "meta:1723067628897957",
+          "rank": 62
+        },
+        {
+          "key": "meta:1009179166964923",
+          "rank": 63
+        },
+        {
+          "key": "meta:1782650879238781",
+          "rank": 64
+        },
+        {
+          "key": "meta:1607391367587645",
+          "rank": 65
+        },
+        {
+          "key": "meta:2559283791182236",
+          "rank": 66
+        },
+        {
+          "key": "meta:879357107555143",
+          "rank": 67
+        },
+        {
+          "key": "meta:1924070451629626",
+          "rank": 68
+        },
+        {
+          "key": "meta:1326650532297557",
+          "rank": 69
+        },
+        {
+          "key": "meta:2853858341422671",
+          "rank": 70
+        },
+        {
+          "key": "meta:4001862856739346",
+          "rank": 71
+        },
+        {
+          "key": "meta:1789585954798195",
+          "rank": 72
+        },
+        {
+          "key": "meta:885760769792167",
+          "rank": 73
+        },
+        {
+          "key": "meta:1521074721996761",
+          "rank": 74
+        },
+        {
+          "key": "meta:1603242584715331",
+          "rank": 75
+        },
+        {
+          "key": "meta:1068592065620532",
+          "rank": 76
+        },
+        {
+          "key": "meta:915872874903812",
+          "rank": 77
+        },
+        {
+          "key": "meta:1955898858137826",
+          "rank": 78
+        },
+        {
+          "key": "meta:719926354250794",
+          "rank": 79
+        },
+        {
+          "key": "meta:1332883825318126",
+          "rank": 80
+        },
+        {
+          "key": "meta:8344195318938437",
+          "rank": 81
+        },
+        {
+          "key": "meta:850075462973559",
+          "rank": 82
+        },
+        {
+          "key": "meta:986317949192663",
+          "rank": 83
+        },
+        {
+          "key": "meta:555498403070913",
+          "rank": 84
+        },
+        {
+          "key": "meta:601172131704233",
+          "rank": 85
+        },
+        {
+          "key": "meta:900264374440235",
+          "rank": 86
+        },
+        {
+          "key": "meta:933551274610242",
+          "rank": 87
+        },
+        {
+          "key": "meta:1306349083252374",
+          "rank": 88
+        },
+        {
+          "key": "meta:387326997222397",
+          "rank": 89
+        },
+        {
+          "key": "meta:7398038493554345",
+          "rank": 90
+        },
+        {
+          "key": "meta:814204579692676",
+          "rank": 91
+        },
+        {
+          "key": "meta:1334775371206128",
+          "rank": 92
+        },
+        {
+          "key": "meta:5427015514002838",
+          "rank": 93
+        },
+        {
+          "key": "meta:1454600568989365",
+          "rank": 94
+        },
+        {
+          "key": "meta:704264117997175",
+          "rank": 95
+        },
+        {
+          "key": "meta:1525432591337270",
+          "rank": 96
+        },
+        {
+          "key": "meta:945214718593990",
+          "rank": 97
+        },
+        {
+          "key": "meta:1190788152489335",
+          "rank": 98
+        },
+        {
+          "key": "meta:38085932191020938",
+          "rank": 99
+        },
+        {
+          "key": "meta:425935369982799",
+          "rank": 100
+        },
+        {
+          "key": "meta:3676498635969086",
+          "rank": 101
+        },
+        {
+          "key": "meta:380439224369766",
+          "rank": 102
+        },
+        {
+          "key": "meta:642822283435945",
+          "rank": 103
+        },
+        {
+          "key": "meta:2141222366736036",
+          "rank": 104
+        },
+        {
+          "key": "meta:4688036754753572",
+          "rank": 105
+        },
+        {
+          "key": "meta:1020599220366475",
+          "rank": 106
+        },
+        {
+          "key": "meta:1058349986212245",
+          "rank": 107
+        },
+        {
+          "key": "meta:1095507091473045",
+          "rank": 108
+        },
+        {
+          "key": "meta:3250914715238196",
+          "rank": 109
+        },
+        {
+          "key": "meta:7983498785001568",
+          "rank": 110
+        },
+        {
+          "key": "meta:751416240876817",
+          "rank": 111
+        },
+        {
+          "key": "meta:757857230120436",
+          "rank": 112
+        },
+        {
+          "key": "meta:2306929139667595",
+          "rank": 113
+        },
+        {
+          "key": "meta:3235877029922052",
+          "rank": 114
+        },
+        {
+          "key": "meta:751246024318188",
+          "rank": 115
+        },
+        {
+          "key": "meta:850124134281482",
+          "rank": 116
+        },
+        {
+          "key": "meta:786839587401855",
+          "rank": 117
+        },
+        {
+          "key": "meta:1337313247929543",
+          "rank": 118
+        },
+        {
+          "key": "meta:1494581865038019",
+          "rank": 119
+        },
+        {
+          "key": "meta:2337758753072566",
+          "rank": 120
+        },
+        {
+          "key": "meta:104068605962977",
+          "rank": 121
+        },
+        {
+          "key": "meta:706512097550104",
+          "rank": 122
+        },
+        {
+          "key": "meta:1444606776278155",
+          "rank": 123
+        },
+        {
+          "key": "meta:975374698904029",
+          "rank": 124
+        },
+        {
+          "key": "meta:1386871190037063",
+          "rank": 125
+        },
+        {
+          "key": "meta:755119977565652",
+          "rank": 126
+        },
+        {
+          "key": "meta:3795637077243932",
+          "rank": 127
+        },
+        {
+          "key": "meta:766424992438388",
+          "rank": 128
+        },
+        {
+          "key": "meta:494580996680976",
+          "rank": 129
+        },
+        {
+          "key": "meta:911282240205593",
+          "rank": 130
+        },
+        {
+          "key": "meta:833105201353146",
+          "rank": 131
+        },
+        {
+          "key": "meta:608070498573374",
+          "rank": 132
+        },
+        {
+          "key": "meta:697816646080620",
+          "rank": 133
+        },
+        {
+          "key": "meta:477100548452815",
+          "rank": 134
+        },
+        {
+          "key": "meta:921500047118751",
+          "rank": 135
+        },
+        {
+          "key": "meta:2174897763908564",
+          "rank": 136
+        },
+        {
+          "key": "meta:1404312610977270",
+          "rank": 137
+        },
+        {
+          "key": "meta:440467658715434",
+          "rank": 138
+        },
+        {
+          "key": "meta:1112619309796713",
+          "rank": 139
+        },
+        {
+          "key": "meta:452920340213631",
+          "rank": 140
+        },
+        {
+          "key": "meta:798848571402155",
+          "rank": 141
+        },
+        {
+          "key": "meta:1147325369959096",
+          "rank": 142
+        },
+        {
+          "key": "meta:1147514280845533",
+          "rank": 143
+        },
+        {
+          "key": "meta:1751450635477427",
+          "rank": 144
+        },
+        {
+          "key": "meta:3015012582136708",
+          "rank": 145
+        },
+        {
+          "key": "meta:863076242621468",
+          "rank": 146
+        },
+        {
+          "key": "meta:1307136203473406",
+          "rank": 147
+        },
+        {
+          "key": "meta:1087216169395957",
+          "rank": 148
+        },
+        {
+          "key": "meta:1454954062066960",
+          "rank": 149
+        },
+        {
+          "key": "meta:729128020018513",
+          "rank": 150
+        },
+        {
+          "key": "meta:1204611444970405",
+          "rank": 151
+        },
+        {
+          "key": "meta:7796493447065988",
+          "rank": 152
+        },
+        {
+          "key": "meta:810257364292538",
+          "rank": 153
+        },
+        {
+          "key": "meta:2266427050207608",
+          "rank": 154
+        },
+        {
+          "key": "meta:806487351156254",
+          "rank": 155
+        },
+        {
+          "key": "meta:1078965334483991",
+          "rank": 156
+        },
+        {
+          "key": "meta:1056683879737280",
+          "rank": 157
+        },
+        {
+          "key": "meta:690356115505348",
+          "rank": 158
+        },
+        {
+          "key": "meta:1826109161691075",
+          "rank": 159
+        },
+        {
+          "key": "meta:2286259825098614",
+          "rank": 160
+        },
+        {
+          "key": "meta:1160573601807465",
+          "rank": 161
+        },
+        {
+          "key": "meta:943891507014040",
+          "rank": 162
+        },
+        {
+          "key": "meta:1533332147140863",
+          "rank": 163
+        },
+        {
+          "key": "meta:489969326485814",
+          "rank": 164
+        },
+        {
+          "key": "meta:735410008358793",
+          "rank": 165
+        },
+        {
+          "key": "meta:1174195071018224",
+          "rank": 166
+        },
+        {
+          "key": "meta:986602334357511",
+          "rank": 167
+        },
+        {
+          "key": "meta:1260496304505168",
+          "rank": 168
+        },
+        {
+          "key": "meta:4346951832115255",
+          "rank": 169
+        },
+        {
+          "key": "meta:3227534440795595",
+          "rank": 170
+        },
+        {
+          "key": "meta:2063183710956310",
+          "rank": 171
+        },
+        {
+          "key": "meta:2069480717237434",
+          "rank": 172
+        },
+        {
+          "key": "meta:516552890783424",
+          "rank": 173
+        },
+        {
+          "key": "meta:793113212594618",
+          "rank": 174
+        },
+        {
+          "key": "meta:526189863795179",
+          "rank": 175
+        },
+        {
+          "key": "meta:1381310767293716",
+          "rank": 176
+        },
+        {
+          "key": "meta:1561533275345686",
+          "rank": 177
+        },
+        {
+          "key": "meta:1293938235182016",
+          "rank": 178
+        },
+        {
+          "key": "meta:776991023412376",
+          "rank": 179
+        },
+        {
+          "key": "meta:1068151122243987",
+          "rank": 180
+        },
+        {
+          "key": "meta:1656169098451825",
+          "rank": 181
+        },
+        {
+          "key": "meta:1054676303176146",
+          "rank": 182
+        },
+        {
+          "key": "meta:2034439110667868",
+          "rank": 183
+        },
+        {
+          "key": "meta:1479440725921662",
+          "rank": 184
+        },
+        {
+          "key": "meta:1528615587725587",
+          "rank": 185
+        },
+        {
+          "key": "meta:1052356952527460",
+          "rank": 186
+        },
+        {
+          "key": "meta:591237649775636",
+          "rank": 187
+        },
+        {
+          "key": "meta:547485838411971",
+          "rank": 188
+        },
+        {
+          "key": "meta:579244341939654",
+          "rank": 189
+        },
+        {
+          "key": "meta:1212332163791113",
+          "rank": 190
+        },
+        {
+          "key": "meta:1341302471465456",
+          "rank": 191
+        },
+        {
+          "key": "meta:1274728051042052",
+          "rank": 192
+        },
+        {
+          "key": "meta:4490116141306888",
+          "rank": 193
+        },
+        {
+          "key": "meta:1073385267824497",
+          "rank": 194
+        },
+        {
+          "key": "meta:1392566142406895",
+          "rank": 195
+        },
+        {
+          "key": "meta:622008465955083",
+          "rank": 196
+        },
+        {
+          "key": "meta:387670243360077",
+          "rank": 197
+        },
+        {
+          "key": "meta:1019267330502912",
+          "rank": 198
+        },
+        {
+          "key": "meta:4233436030230077",
+          "rank": 199
+        },
+        {
+          "key": "meta:1579270269144988",
+          "rank": 200
+        }
+      ]
     }
   ],
   "lastfm_cache": {},
@@ -2331,29 +3053,225 @@
       "meta_rank": 2,
       "external_metadata": null,
       "snapshot_24h": null
+    },
+    {
+      "song_id": "1603242584715331",
+      "song_key": "meta:1603242584715331",
+      "title": "Empty Halfpipe",
+      "artist": "",
+      "duration_s": 63.68,
+      "published_at": "2026-10-12T16:44:52.574858Z",
+      "reel_id": "17931053514162255",
+      "selection_mode": "auto",
+      "selected_score": 0.4192211055276382,
+      "selection_reason": "rank=#75 prev_rank=None A=0.094 B=0.050 C=0.000 D=0.075 E=0.000 F=0.000 G=0.200 chart=None mood=sad listeners=None mode=deterministic (top scorer)",
+      "caption_hook": "he's not winning. he's listening to this 🎧",
+      "meta_rank": 75,
+      "external_metadata": null,
+      "snapshot_24h": null
     }
   ],
   "last_candidate_keys": [
-    "meta:2292908894894132",
-    "meta:2154226371972880",
-    "meta:2172765939972901",
-    "meta:1109536671886017",
-    "meta:2109496123000490",
-    "meta:1821831272570576",
-    "meta:1435088278519476",
-    "meta:1647147476842073",
-    "meta:923651928441052",
-    "meta:2202474219992206",
-    "meta:1105696345181883",
-    "meta:1338698842657240",
-    "meta:3503780519792882",
-    "meta:2055018968429993",
-    "meta:768466421072366",
-    "meta:967056428847172",
-    "meta:1439115847144747",
-    "meta:1587549518791633",
-    "meta:1494838971487001",
-    "meta:1215672486391891"
+    "meta:505703708228220",
+    "meta:1088574347238980",
+    "meta:1138497598239952",
+    "meta:1880031723374513",
+    "meta:1387441556706786",
+    "meta:2147587542824760",
+    "meta:2170947563771888",
+    "meta:293906472541148",
+    "meta:1621617872973399",
+    "meta:2132000117529002",
+    "meta:1241304587512302",
+    "meta:683474321384896",
+    "meta:639014834938286",
+    "meta:264685510032411",
+    "meta:631091601792429",
+    "meta:707176948538552",
+    "meta:766355572109757",
+    "meta:1582573200177620",
+    "meta:799728528926998",
+    "meta:1717608872140349",
+    "meta:1140511277192286",
+    "meta:1126345968385858",
+    "meta:1497294547533408",
+    "meta:741676760235304",
+    "meta:843481004054430",
+    "meta:980611379687361",
+    "meta:1236276531917391",
+    "meta:10071717786179781",
+    "meta:1384245180224843",
+    "meta:2015042415509914",
+    "meta:645551997925278",
+    "meta:1682258738491919",
+    "meta:1272137963366391",
+    "meta:2452317871593305",
+    "meta:892517332302957",
+    "meta:715871727639153",
+    "meta:396038869855594",
+    "meta:810609847756039",
+    "meta:1233210491181424",
+    "meta:257663954054161",
+    "meta:1209362676336144",
+    "meta:1211221722765582",
+    "meta:1898545684218804",
+    "meta:1211337449858095",
+    "meta:892347103668939",
+    "meta:2488666824970706",
+    "meta:1282828153798231",
+    "meta:750293096316602",
+    "meta:1349824246647397",
+    "meta:949754374812737",
+    "meta:1196222724271295",
+    "meta:485596294131932",
+    "meta:1368906545226643",
+    "meta:1589422295602211",
+    "meta:771703697237882",
+    "meta:675208868309032",
+    "meta:967182757910991",
+    "meta:1102201857634072",
+    "meta:800280101179299",
+    "meta:1071473098598316",
+    "meta:904560546038363",
+    "meta:1723067628897957",
+    "meta:1009179166964923",
+    "meta:1782650879238781",
+    "meta:1607391367587645",
+    "meta:2559283791182236",
+    "meta:879357107555143",
+    "meta:1924070451629626",
+    "meta:1326650532297557",
+    "meta:2853858341422671",
+    "meta:4001862856739346",
+    "meta:1789585954798195",
+    "meta:885760769792167",
+    "meta:1521074721996761",
+    "meta:1603242584715331",
+    "meta:1068592065620532",
+    "meta:915872874903812",
+    "meta:1955898858137826",
+    "meta:719926354250794",
+    "meta:1332883825318126",
+    "meta:8344195318938437",
+    "meta:850075462973559",
+    "meta:986317949192663",
+    "meta:555498403070913",
+    "meta:601172131704233",
+    "meta:900264374440235",
+    "meta:933551274610242",
+    "meta:1306349083252374",
+    "meta:387326997222397",
+    "meta:7398038493554345",
+    "meta:814204579692676",
+    "meta:1334775371206128",
+    "meta:5427015514002838",
+    "meta:1454600568989365",
+    "meta:704264117997175",
+    "meta:1525432591337270",
+    "meta:945214718593990",
+    "meta:1190788152489335",
+    "meta:38085932191020938",
+    "meta:425935369982799",
+    "meta:3676498635969086",
+    "meta:380439224369766",
+    "meta:642822283435945",
+    "meta:2141222366736036",
+    "meta:4688036754753572",
+    "meta:1020599220366475",
+    "meta:1058349986212245",
+    "meta:1095507091473045",
+    "meta:3250914715238196",
+    "meta:7983498785001568",
+    "meta:751416240876817",
+    "meta:757857230120436",
+    "meta:2306929139667595",
+    "meta:3235877029922052",
+    "meta:751246024318188",
+    "meta:850124134281482",
+    "meta:786839587401855",
+    "meta:1337313247929543",
+    "meta:1494581865038019",
+    "meta:2337758753072566",
+    "meta:104068605962977",
+    "meta:706512097550104",
+    "meta:1444606776278155",
+    "meta:975374698904029",
+    "meta:1386871190037063",
+    "meta:755119977565652",
+    "meta:3795637077243932",
+    "meta:766424992438388",
+    "meta:494580996680976",
+    "meta:911282240205593",
+    "meta:833105201353146",
+    "meta:608070498573374",
+    "meta:697816646080620",
+    "meta:477100548452815",
+    "meta:921500047118751",
+    "meta:2174897763908564",
+    "meta:1404312610977270",
+    "meta:440467658715434",
+    "meta:1112619309796713",
+    "meta:452920340213631",
+    "meta:798848571402155",
+    "meta:1147325369959096",
+    "meta:1147514280845533",
+    "meta:1751450635477427",
+    "meta:3015012582136708",
+    "meta:863076242621468",
+    "meta:1307136203473406",
+    "meta:1087216169395957",
+    "meta:1454954062066960",
+    "meta:729128020018513",
+    "meta:1204611444970405",
+    "meta:7796493447065988",
+    "meta:810257364292538",
+    "meta:2266427050207608",
+    "meta:806487351156254",
+    "meta:1078965334483991",
+    "meta:1056683879737280",
+    "meta:690356115505348",
+    "meta:1826109161691075",
+    "meta:2286259825098614",
+    "meta:1160573601807465",
+    "meta:943891507014040",
+    "meta:1533332147140863",
+    "meta:489969326485814",
+    "meta:735410008358793",
+    "meta:1174195071018224",
+    "meta:986602334357511",
+    "meta:1260496304505168",
+    "meta:4346951832115255",
+    "meta:3227534440795595",
+    "meta:2063183710956310",
+    "meta:2069480717237434",
+    "meta:516552890783424",
+    "meta:793113212594618",
+    "meta:526189863795179",
+    "meta:1381310767293716",
+    "meta:1561533275345686",
+    "meta:1293938235182016",
+    "meta:776991023412376",
+    "meta:1068151122243987",
+    "meta:1656169098451825",
+    "meta:1054676303176146",
+    "meta:2034439110667868",
+    "meta:1479440725921662",
+    "meta:1528615587725587",
+    "meta:1052356952527460",
+    "meta:591237649775636",
+    "meta:547485838411971",
+    "meta:579244341939654",
+    "meta:1212332163791113",
+    "meta:1341302471465456",
+    "meta:1274728051042052",
+    "meta:4490116141306888",
+    "meta:1073385267824497",
+    "meta:1392566142406895",
+    "meta:622008465955083",
+    "meta:387670243360077",
+    "meta:1019267330502912",
+    "meta:4233436030230077",
+    "meta:1579270269144988"
   ],
   "chart_cache": {
     "us": {
@@ -3059,6 +3977,731 @@
           "artist": "Morgan Wallen",
           "genres": [
             "Country"
+          ]
+        }
+      ]
+    },
+    "in": {
+      "cached_at": "2026-10-12T16:43:52.259069Z",
+      "songs": [
+        {
+          "name": "Ashke",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Hip-Hop/Rap",
+            "Pop"
+          ]
+        },
+        {
+          "name": "Straight Up",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Hip-Hop/Rap",
+            "Pop"
+          ]
+        },
+        {
+          "name": "Said & Done",
+          "artist": "Arjan Dhillon",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Real Bad Man",
+          "artist": "Karan Aujla",
+          "genres": [
+            "Hip-Hop/Rap",
+            "Pop"
+          ]
+        },
+        {
+          "name": "Radhimaa (feat. Sai Smriti) [From \"Think Indie\"]",
+          "artist": "Sai Abhyankkar, Nargis Teji, Asma Teji & Vivek",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Rap Killa (feat. Azaad 4L)",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Hip-Hop/Rap",
+            "Pop"
+          ]
+        },
+        {
+          "name": "Aujla Szn",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Hip-Hop/Rap",
+            "Pop"
+          ]
+        },
+        {
+          "name": "IYKYK",
+          "artist": "Jxggi, Dishant & Sickboi",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Antidote",
+          "artist": "Karan Aujla",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Arz Kiya Hai  Coke Studio Bharat",
+          "artist": "Anuv Jain",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Low Fade",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Barsaat",
+          "artist": "Banjaare & Roni",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Softly",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "For A Reason",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Pop",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "One Name",
+          "artist": "Anirudh Ravichander & Super Subu",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "KALYANI (Remix)",
+          "artist": "ARJN, KDS, FIFTY4 & Shreya Ghoshal",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "One Sun One Moon (From \"Jailer 2\")",
+          "artist": "Anirudh Ravichander, Super Subu, M.S Krsna & HEISENBERG",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Gehra Hua",
+          "artist": "Shashwat Sachdev, Arijit Singh, Irshad Kamil & Armaan Khan",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Shree Hanuman Chalisa",
+          "artist": "Hariharan",
+          "genres": [
+            "Devotional & Spiritual"
+          ]
+        },
+        {
+          "name": "I Really Do...",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Pop",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Winning Speech",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Pop",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "BADASS",
+          "artist": "Arjan Dhillon",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Khat",
+          "artist": "Navjot Ahuja",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Parvati",
+          "artist": "Sadhu Tiwari",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Tujhe Kitna Chahne Lage",
+          "artist": "Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "At Peace",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Raga of Revenge (From \"DC\")",
+          "artist": "Anirudh Ravichander",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Casa Tupka Anthemo (feat. Priyanshi)",
+          "artist": "Yo Yo Honey Singh",
+          "genres": []
+        },
+        {
+          "name": "Wavy",
+          "artist": "Karan Aujla & Jay Trak",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Deewane (feat. BIR)",
+          "artist": "Navaan Sandhu",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Darkhaast (feat. Arijit Singh, Sunidhi Chauhan)",
+          "artist": "Mithoon",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Bairan",
+          "artist": "Banjaare",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Pesamale",
+          "artist": "Siri Xander & Arra Aria Khayal",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Magale (From \"Baththa\")",
+          "artist": "Sai Abhyankkar, Harini & Karthik Netha",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Boyfriend",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Pop",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Lover",
+          "artist": "Diljit Dosanjh",
+          "genres": [
+            "Indian Pop",
+            "Regional Indian",
+            "Pop"
+          ]
+        },
+        {
+          "name": "Khuda Jaane",
+          "artist": "Vishal & Shekhar, KK & Shilpa Rao",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Naal Nachna",
+          "artist": "Shashwat Sachdev, Afsana Khan, Irshad Kamil & Reble",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Apna Bana Le (From \"Bhediya\")",
+          "artist": "Arijit Singh, Sachin-Jigar & Amitabh Bhattacharya",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Hawayein",
+          "artist": "Pritam & Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Dooriyan",
+          "artist": "Pritam & Mohit Chauhan",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Ooroda Oththa Don (From \"Baththa\")",
+          "artist": "Sai Abhyankkar, Vangal Pulla Vicky, Thamizh Aadhavan & KK Nagar Gana Jeeva",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Pavazha Malli (From \"Think Indie\")",
+          "artist": "Sai Abhyankkar, Shruti Haasan & Vivek",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "MF Gabhru!",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Rock",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Courtside",
+          "artist": "Karan Aujla & Signature by SB",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Tum Se Hi",
+          "artist": "Pritam & Mohit Chauhan",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Jackpot",
+          "artist": "Cheema Y & Gur Sidhu",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Barbaad",
+          "artist": "The Rish & Jubin Nautiyal",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Wo Noor",
+          "artist": "AP Dhillon",
+          "genres": [
+            "Regional Indian",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Tera Yaar Hoon Main",
+          "artist": "Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Aaya Sher (From \"The Paradise\")",
+          "artist": "Jangi Reddy, Arjun Chandy, Anirudh Ravichander & Kasarla Shyam",
+          "genres": [
+            "Telugu",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Kabira",
+          "artist": "Pritam, Tochi Raina & Rekha Bhardwaj",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Ghungroo (From \"War\")",
+          "artist": "Arijit Singh, Shilpa Rao & Vishal & Shekhar",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Young G.O.A.T",
+          "artist": "Cheema Y & Gur Sidhu",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Jaiye Sajana",
+          "artist": "Shashwat Sachdev, Jasmine Sandlas & Satinder Sartaaj",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Rathinamo (Female Version)",
+          "artist": "Saurav Srisan & Tanisha Gnanavel",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Lalkara (feat. Sultaan)",
+          "artist": "Diljit Dosanjh",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Kath Lagda",
+          "artist": "Navaan Sandhu, Dhanda Nyoliwala, RXTRO & Sanya Dandona",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Alaakaa Loova (From \"OM Chapter 1: Udhiram  - The Blood Wood\") [Tamil]",
+          "artist": "Sai Abhyankkar & Rokesh",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Tera Mera Rishta - New Version (From \"Awarapan 2\")",
+          "artist": "Mithoon, Pritam, Saaj Bhatt, Subodhh Sharma, Sayeed Quadri & Mustafa Zahid",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Yeshanagula (From \"The Paradise\")",
+          "artist": "Singer Prabha, Jangi Reddy, Anirudh Ravichander & Kasarla Shyam",
+          "genres": [
+            "Telugu",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "5-7",
+          "artist": "Karan Aujla & MXRCI",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Kaise Hua",
+          "artist": "Vishal Mishra",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Tere Liye",
+          "artist": "Atif Aslam & Shreya Ghoshal",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Tum Ho Toh",
+          "artist": "Vishal Mishra, Hansika Pareek & Raj Shekhar",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Starboy (feat. Daft Punk)",
+          "artist": "The Weeknd",
+          "genres": []
+        },
+        {
+          "name": "Maruti",
+          "artist": "Dhanda Nyoliwala, Ron Likhari & Miki Malang",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Do Numbari (From “Mirzapur The Movie”)",
+          "artist": "Dhanda Nyoliwala",
+          "genres": []
+        },
+        {
+          "name": "Boom Shaka",
+          "artist": "KR$NA & Dhanda Nyoliwala",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Jee Ni Lagda",
+          "artist": "Karan Aujla & Ikky",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Ala Bolelo (From \"Jailer 2\")",
+          "artist": "Anirudh Ravichander & Arunraja Kamaraj",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Never Fold",
+          "artist": "Sidhu Moose Wala",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Hanuman Chalisa-Lofi",
+          "artist": "Rasraj Ji Maharaj",
+          "genres": [
+            "Devotional & Spiritual"
+          ]
+        },
+        {
+          "name": "Vaaroon Forever (From “Mirzapur The Movie”)",
+          "artist": "Anand Bhaskar, Romy, Shreya Ghoshal & Ginny Diwan",
+          "genres": []
+        },
+        {
+          "name": "Pehli Nazar Mein",
+          "artist": "Atif Aslam & Pritam",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Kinni Kinni",
+          "artist": "Diljit Dosanjh",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Blinding Lights",
+          "artist": "The Weeknd",
+          "genres": []
+        },
+        {
+          "name": "Hangova",
+          "artist": "Anirudh Ravichander & Heisenberg",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Nicole Kidman",
+          "artist": "ADÉLA",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Phir Se Ud Chala",
+          "artist": "Mohit Chauhan",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Jaan Se Guzarte Hain",
+          "artist": "Shashwat Sachdev & Khan Saab",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Indeed",
+          "artist": "Cheema Y & Gur Sidhu",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "On Top",
+          "artist": "Karan Aujla",
+          "genres": [
+            "Indian Pop",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Mascara",
+          "artist": "Cheema Y & Gur Sidhu",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Bum Baa Diga Diga",
+          "artist": "Anirudh Ravichander, Vedan & Heisenberg",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Aabaad Barbaad",
+          "artist": "Pritam & Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Putaapu Gang",
+          "artist": "Anirudh Ravichander & Thamizh Aadhavan",
+          "genres": [
+            "Tamil",
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Channa Mereya",
+          "artist": "Pritam & Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Dil Nu",
+          "artist": "AP Dhillon & Shinda Kahlon",
+          "genres": [
+            "Regional Indian",
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Lutt Le Gaya",
+          "artist": "Shashwat Sachdev & Simran Choudhary",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Lemonade",
+          "artist": "Diljit Dosanjh",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Sahiba",
+          "artist": "Aditya Rikhari",
+          "genres": [
+            "Indian Pop"
+          ]
+        },
+        {
+          "name": "Agar Tum Saath Ho",
+          "artist": "Alka Yagnik & Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Bulleya",
+          "artist": "Pritam, Amit Mishra & Shilpa Rao",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Loser",
+          "artist": "Tame Impala",
+          "genres": [
+            "Alternative",
+            "Dance"
+          ]
+        },
+        {
+          "name": "Brabus",
+          "artist": "Parmish Verma, Kiran Bajwa & Starboy X",
+          "genres": [
+            "Regional Indian"
+          ]
+        },
+        {
+          "name": "Yeh Fitoor Mera",
+          "artist": "Arijit Singh",
+          "genres": [
+            "Bollywood"
+          ]
+        },
+        {
+          "name": "Takde Gharde",
+          "artist": "Cheema Y & Gur Sidhu",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Cheques",
+          "artist": "Shubh",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Kesariya (From \"Brahmastra\")",
+          "artist": "Pritam, Arijit Singh & Amitabh Bhattacharya",
+          "genres": [
+            "Bollywood"
           ]
         }
       ]
