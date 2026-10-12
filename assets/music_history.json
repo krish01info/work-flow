@@ -7,91 +7,6 @@
   ],
   "candidate_history": [
     {
-      "run_at": "2026-10-09T00:04:22.157118Z",
-      "candidates": [
-        {
-          "key": "meta:1584327935997492",
-          "rank": 1
-        },
-        {
-          "key": "meta:1424027565795640",
-          "rank": 2
-        },
-        {
-          "key": "meta:1099270939181745",
-          "rank": 3
-        },
-        {
-          "key": "meta:2340262533471143",
-          "rank": 4
-        },
-        {
-          "key": "meta:1718756805864332",
-          "rank": 5
-        },
-        {
-          "key": "meta:1079922798166236",
-          "rank": 6
-        },
-        {
-          "key": "meta:1261741096105023",
-          "rank": 7
-        },
-        {
-          "key": "meta:4458357324476106",
-          "rank": 8
-        },
-        {
-          "key": "meta:1572618884463967",
-          "rank": 9
-        },
-        {
-          "key": "meta:2234673680598652",
-          "rank": 10
-        },
-        {
-          "key": "meta:1492379226049428",
-          "rank": 11
-        },
-        {
-          "key": "meta:1651035843102869",
-          "rank": 12
-        },
-        {
-          "key": "meta:1380420203157832",
-          "rank": 13
-        },
-        {
-          "key": "meta:1742244713557139",
-          "rank": 14
-        },
-        {
-          "key": "meta:2992312904443962",
-          "rank": 15
-        },
-        {
-          "key": "meta:1053354807177447",
-          "rank": 16
-        },
-        {
-          "key": "meta:1049988139329699",
-          "rank": 17
-        },
-        {
-          "key": "meta:571200374861371",
-          "rank": 18
-        },
-        {
-          "key": "meta:38085932191020938",
-          "rank": 19
-        },
-        {
-          "key": "meta:649597917341596",
-          "rank": 20
-        }
-      ]
-    },
-    {
       "run_at": "2026-10-09T10:59:49.432326Z",
       "candidates": [
         {
@@ -855,6 +770,811 @@
           "rank": 20
         }
       ]
+    },
+    {
+      "run_at": "2026-10-12T11:16:54.345290Z",
+      "candidates": [
+        {
+          "key": "meta:505703708228220",
+          "rank": 1
+        },
+        {
+          "key": "meta:1088574347238980",
+          "rank": 2
+        },
+        {
+          "key": "meta:1138497598239952",
+          "rank": 3
+        },
+        {
+          "key": "meta:1880031723374513",
+          "rank": 4
+        },
+        {
+          "key": "meta:1387441556706786",
+          "rank": 5
+        },
+        {
+          "key": "meta:2147587542824760",
+          "rank": 6
+        },
+        {
+          "key": "meta:2170947563771888",
+          "rank": 7
+        },
+        {
+          "key": "meta:293906472541148",
+          "rank": 8
+        },
+        {
+          "key": "meta:1621617872973399",
+          "rank": 9
+        },
+        {
+          "key": "meta:6317656768339349",
+          "rank": 10
+        },
+        {
+          "key": "meta:3068736686661583",
+          "rank": 11
+        },
+        {
+          "key": "meta:510484690923516",
+          "rank": 12
+        },
+        {
+          "key": "meta:553131776641753",
+          "rank": 13
+        },
+        {
+          "key": "meta:630470948626100",
+          "rank": 14
+        },
+        {
+          "key": "meta:6336323856380054",
+          "rank": 15
+        },
+        {
+          "key": "meta:1827173837800172",
+          "rank": 16
+        },
+        {
+          "key": "meta:749864883136499",
+          "rank": 17
+        },
+        {
+          "key": "meta:1307136203473406",
+          "rank": 18
+        },
+        {
+          "key": "meta:1492906644931453",
+          "rank": 19
+        },
+        {
+          "key": "meta:187607240985075",
+          "rank": 20
+        },
+        {
+          "key": "meta:1617111803021166",
+          "rank": 21
+        },
+        {
+          "key": "meta:760413049792267",
+          "rank": 22
+        },
+        {
+          "key": "meta:2939174029770843",
+          "rank": 23
+        },
+        {
+          "key": "meta:2017559502014696",
+          "rank": 24
+        },
+        {
+          "key": "meta:1605148704077555",
+          "rank": 25
+        },
+        {
+          "key": "meta:2342550806257880",
+          "rank": 26
+        },
+        {
+          "key": "meta:835929998709065",
+          "rank": 27
+        },
+        {
+          "key": "meta:1093301539564454",
+          "rank": 28
+        },
+        {
+          "key": "meta:3361677883965670",
+          "rank": 29
+        },
+        {
+          "key": "meta:1413694550188572",
+          "rank": 30
+        },
+        {
+          "key": "meta:1105560106782646",
+          "rank": 31
+        },
+        {
+          "key": "meta:1818046092881352",
+          "rank": 32
+        },
+        {
+          "key": "meta:8218035291546219",
+          "rank": 33
+        },
+        {
+          "key": "meta:1025140303465102",
+          "rank": 34
+        },
+        {
+          "key": "meta:1301267910856505",
+          "rank": 35
+        },
+        {
+          "key": "meta:1082081420232143",
+          "rank": 36
+        },
+        {
+          "key": "meta:1035303666061396",
+          "rank": 37
+        },
+        {
+          "key": "meta:795574865560462",
+          "rank": 38
+        },
+        {
+          "key": "meta:1115228880029100",
+          "rank": 39
+        },
+        {
+          "key": "meta:1314236559123741",
+          "rank": 40
+        },
+        {
+          "key": "meta:252040271211825",
+          "rank": 41
+        },
+        {
+          "key": "meta:884175553260987",
+          "rank": 42
+        },
+        {
+          "key": "meta:239847715075603",
+          "rank": 43
+        },
+        {
+          "key": "meta:1386838492344416",
+          "rank": 44
+        },
+        {
+          "key": "meta:614133594209198",
+          "rank": 45
+        },
+        {
+          "key": "meta:987474850971161",
+          "rank": 46
+        },
+        {
+          "key": "meta:1908260833399880",
+          "rank": 47
+        },
+        {
+          "key": "meta:930063635946769",
+          "rank": 48
+        },
+        {
+          "key": "meta:731720025130737",
+          "rank": 49
+        },
+        {
+          "key": "meta:1488842099008011",
+          "rank": 50
+        },
+        {
+          "key": "meta:25017592581250392",
+          "rank": 51
+        },
+        {
+          "key": "meta:1306182447106148",
+          "rank": 52
+        },
+        {
+          "key": "meta:1132019617843545",
+          "rank": 53
+        },
+        {
+          "key": "meta:4114776835505724",
+          "rank": 54
+        },
+        {
+          "key": "meta:622008465955083",
+          "rank": 55
+        },
+        {
+          "key": "meta:325642987163531",
+          "rank": 56
+        },
+        {
+          "key": "meta:614418411270205",
+          "rank": 57
+        },
+        {
+          "key": "meta:193879683332884",
+          "rank": 58
+        },
+        {
+          "key": "meta:1204512204083973",
+          "rank": 59
+        },
+        {
+          "key": "meta:1284844509021154",
+          "rank": 60
+        },
+        {
+          "key": "meta:1200935044128516",
+          "rank": 61
+        },
+        {
+          "key": "meta:5856046267760434",
+          "rank": 62
+        },
+        {
+          "key": "meta:1073394428409500",
+          "rank": 63
+        },
+        {
+          "key": "meta:1924221655173089",
+          "rank": 64
+        },
+        {
+          "key": "meta:624310297245667",
+          "rank": 65
+        },
+        {
+          "key": "meta:1020795546972533",
+          "rank": 66
+        },
+        {
+          "key": "meta:2063183710956310",
+          "rank": 67
+        },
+        {
+          "key": "meta:934397431019836",
+          "rank": 68
+        },
+        {
+          "key": "meta:9351430898247355",
+          "rank": 69
+        },
+        {
+          "key": "meta:572834695840264",
+          "rank": 70
+        },
+        {
+          "key": "meta:1075538539832021",
+          "rank": 71
+        },
+        {
+          "key": "meta:909693197690369",
+          "rank": 72
+        },
+        {
+          "key": "meta:3559979587565996",
+          "rank": 73
+        },
+        {
+          "key": "meta:712071251151824",
+          "rank": 74
+        },
+        {
+          "key": "meta:710335611388424",
+          "rank": 75
+        },
+        {
+          "key": "meta:450963234267395",
+          "rank": 76
+        },
+        {
+          "key": "meta:363296516438487",
+          "rank": 77
+        },
+        {
+          "key": "meta:1496318305091207",
+          "rank": 78
+        },
+        {
+          "key": "meta:2263439694405407",
+          "rank": 79
+        },
+        {
+          "key": "meta:877979834233844",
+          "rank": 80
+        },
+        {
+          "key": "meta:1360231094768457",
+          "rank": 81
+        },
+        {
+          "key": "meta:701902422046447",
+          "rank": 82
+        },
+        {
+          "key": "meta:579710134078750",
+          "rank": 83
+        },
+        {
+          "key": "meta:1427339849262040",
+          "rank": 84
+        },
+        {
+          "key": "meta:3509829325973401",
+          "rank": 85
+        },
+        {
+          "key": "meta:1709820509572418",
+          "rank": 86
+        },
+        {
+          "key": "meta:1315978129784986",
+          "rank": 87
+        },
+        {
+          "key": "meta:2052354372052063",
+          "rank": 88
+        },
+        {
+          "key": "meta:819984569319987",
+          "rank": 89
+        },
+        {
+          "key": "meta:901521971073018",
+          "rank": 90
+        },
+        {
+          "key": "meta:215642691275140",
+          "rank": 91
+        },
+        {
+          "key": "meta:791347242101013",
+          "rank": 92
+        },
+        {
+          "key": "meta:636633339156845",
+          "rank": 93
+        },
+        {
+          "key": "meta:980277265068708",
+          "rank": 94
+        },
+        {
+          "key": "meta:2664580320571303",
+          "rank": 95
+        },
+        {
+          "key": "meta:2449038702290151",
+          "rank": 96
+        },
+        {
+          "key": "meta:2058168661191252",
+          "rank": 97
+        },
+        {
+          "key": "meta:266326379158916",
+          "rank": 98
+        },
+        {
+          "key": "meta:1815702602609160",
+          "rank": 99
+        },
+        {
+          "key": "meta:1239581017109423",
+          "rank": 100
+        },
+        {
+          "key": "meta:731160759477149",
+          "rank": 101
+        },
+        {
+          "key": "meta:153437951138369",
+          "rank": 102
+        },
+        {
+          "key": "meta:889376025586324",
+          "rank": 103
+        },
+        {
+          "key": "meta:1255451325817410",
+          "rank": 104
+        },
+        {
+          "key": "meta:661584458209030",
+          "rank": 105
+        },
+        {
+          "key": "meta:889724945660393",
+          "rank": 106
+        },
+        {
+          "key": "meta:1997591234378725",
+          "rank": 107
+        },
+        {
+          "key": "meta:5047791771991277",
+          "rank": 108
+        },
+        {
+          "key": "meta:1337276061864317",
+          "rank": 109
+        },
+        {
+          "key": "meta:667448992219403",
+          "rank": 110
+        },
+        {
+          "key": "meta:1026593087034679",
+          "rank": 111
+        },
+        {
+          "key": "meta:295778463281636",
+          "rank": 112
+        },
+        {
+          "key": "meta:616565223778566",
+          "rank": 113
+        },
+        {
+          "key": "meta:4233436030230077",
+          "rank": 114
+        },
+        {
+          "key": "meta:526825256283644",
+          "rank": 115
+        },
+        {
+          "key": "meta:540299401885781",
+          "rank": 116
+        },
+        {
+          "key": "meta:659733666333735",
+          "rank": 117
+        },
+        {
+          "key": "meta:984874936425181",
+          "rank": 118
+        },
+        {
+          "key": "meta:1458686412145254",
+          "rank": 119
+        },
+        {
+          "key": "meta:1446369899595714",
+          "rank": 120
+        },
+        {
+          "key": "meta:401842852082650",
+          "rank": 121
+        },
+        {
+          "key": "meta:1035918385856516",
+          "rank": 122
+        },
+        {
+          "key": "meta:667827888427325",
+          "rank": 123
+        },
+        {
+          "key": "meta:1539258216757351",
+          "rank": 124
+        },
+        {
+          "key": "meta:1190246508959357",
+          "rank": 125
+        },
+        {
+          "key": "meta:2228786674252929",
+          "rank": 126
+        },
+        {
+          "key": "meta:872923988151514",
+          "rank": 127
+        },
+        {
+          "key": "meta:1405738891123828",
+          "rank": 128
+        },
+        {
+          "key": "meta:1342795691309863",
+          "rank": 129
+        },
+        {
+          "key": "meta:672815124769866",
+          "rank": 130
+        },
+        {
+          "key": "meta:1069506658404151",
+          "rank": 131
+        },
+        {
+          "key": "meta:2504237873292141",
+          "rank": 132
+        },
+        {
+          "key": "meta:1619782715190052",
+          "rank": 133
+        },
+        {
+          "key": "meta:1755579198205635",
+          "rank": 134
+        },
+        {
+          "key": "meta:620871786051767",
+          "rank": 135
+        },
+        {
+          "key": "meta:978984627492279",
+          "rank": 136
+        },
+        {
+          "key": "meta:921967353426231",
+          "rank": 137
+        },
+        {
+          "key": "meta:455878900068908",
+          "rank": 138
+        },
+        {
+          "key": "meta:1719710348598661",
+          "rank": 139
+        },
+        {
+          "key": "meta:1140511277192286",
+          "rank": 140
+        },
+        {
+          "key": "meta:1065149986009362",
+          "rank": 141
+        },
+        {
+          "key": "meta:819068285857570",
+          "rank": 142
+        },
+        {
+          "key": "meta:1058349986212245",
+          "rank": 143
+        },
+        {
+          "key": "meta:7415628768457581",
+          "rank": 144
+        },
+        {
+          "key": "meta:1729196207662700",
+          "rank": 145
+        },
+        {
+          "key": "meta:2702788150109165",
+          "rank": 146
+        },
+        {
+          "key": "meta:328318049863142",
+          "rank": 147
+        },
+        {
+          "key": "meta:1834776351297778",
+          "rank": 148
+        },
+        {
+          "key": "meta:675445761058166",
+          "rank": 149
+        },
+        {
+          "key": "meta:1613199066688098",
+          "rank": 150
+        },
+        {
+          "key": "meta:28462751936714572",
+          "rank": 151
+        },
+        {
+          "key": "meta:2516061261923209",
+          "rank": 152
+        },
+        {
+          "key": "meta:864924049831933",
+          "rank": 153
+        },
+        {
+          "key": "meta:311840171973700",
+          "rank": 154
+        },
+        {
+          "key": "meta:1181824873406458",
+          "rank": 155
+        },
+        {
+          "key": "meta:1620729619404029",
+          "rank": 156
+        },
+        {
+          "key": "meta:684229093487562",
+          "rank": 157
+        },
+        {
+          "key": "meta:1506177307858673",
+          "rank": 158
+        },
+        {
+          "key": "meta:1447369929684616",
+          "rank": 159
+        },
+        {
+          "key": "meta:1348970155866429",
+          "rank": 160
+        },
+        {
+          "key": "meta:1054793406924333",
+          "rank": 161
+        },
+        {
+          "key": "meta:683713802935809",
+          "rank": 162
+        },
+        {
+          "key": "meta:24643649571984063",
+          "rank": 163
+        },
+        {
+          "key": "meta:801580934424796",
+          "rank": 164
+        },
+        {
+          "key": "meta:2271125906413476",
+          "rank": 165
+        },
+        {
+          "key": "meta:508828234681700",
+          "rank": 166
+        },
+        {
+          "key": "meta:1084571127302289",
+          "rank": 167
+        },
+        {
+          "key": "meta:635559352235604",
+          "rank": 168
+        },
+        {
+          "key": "meta:315471054955792",
+          "rank": 169
+        },
+        {
+          "key": "meta:1573392124268298",
+          "rank": 170
+        },
+        {
+          "key": "meta:1804219107420911",
+          "rank": 171
+        },
+        {
+          "key": "meta:3743148685935423",
+          "rank": 172
+        },
+        {
+          "key": "meta:821125075805880",
+          "rank": 173
+        },
+        {
+          "key": "meta:1563654357995417",
+          "rank": 174
+        },
+        {
+          "key": "meta:615608637913398",
+          "rank": 175
+        },
+        {
+          "key": "meta:264685510032411",
+          "rank": 176
+        },
+        {
+          "key": "meta:3213789592130632",
+          "rank": 177
+        },
+        {
+          "key": "meta:823024905675956",
+          "rank": 178
+        },
+        {
+          "key": "meta:229210056351539",
+          "rank": 179
+        },
+        {
+          "key": "meta:1510426590204744",
+          "rank": 180
+        },
+        {
+          "key": "meta:24191839273799645",
+          "rank": 181
+        },
+        {
+          "key": "meta:330695952935018",
+          "rank": 182
+        },
+        {
+          "key": "meta:1044539324871141",
+          "rank": 183
+        },
+        {
+          "key": "meta:2167710890463270",
+          "rank": 184
+        },
+        {
+          "key": "meta:4268095403410066",
+          "rank": 185
+        },
+        {
+          "key": "meta:1068592065620532",
+          "rank": 186
+        },
+        {
+          "key": "meta:1324485275281238",
+          "rank": 187
+        },
+        {
+          "key": "meta:1127945788919989",
+          "rank": 188
+        },
+        {
+          "key": "meta:2501056960051032",
+          "rank": 189
+        },
+        {
+          "key": "meta:741229140900295",
+          "rank": 190
+        },
+        {
+          "key": "meta:529175072670243",
+          "rank": 191
+        },
+        {
+          "key": "meta:1068776575596252",
+          "rank": 192
+        },
+        {
+          "key": "meta:1690160688917915",
+          "rank": 193
+        },
+        {
+          "key": "meta:1051462733695178",
+          "rank": 194
+        },
+        {
+          "key": "meta:938299727289582",
+          "rank": 195
+        },
+        {
+          "key": "meta:574248974632557",
+          "rank": 196
+        },
+        {
+          "key": "meta:679332618578990",
+          "rank": 197
+        },
+        {
+          "key": "meta:1065783954652794",
+          "rank": 198
+        },
+        {
+          "key": "meta:564171319633869",
+          "rank": 199
+        },
+        {
+          "key": "meta:1958151721530530",
+          "rank": 200
+        }
+      ]
     }
   ],
   "lastfm_cache": {},
@@ -926,5 +1646,714 @@
     "meta:1587549518791633",
     "meta:1494838971487001",
     "meta:1215672486391891"
-  ]
+  ],
+  "chart_cache": {
+    "us": {
+      "cached_at": "2026-10-12T11:16:54.346300Z",
+      "songs": [
+        {
+          "name": "Solar Eclipse",
+          "artist": "Drake & Don Toliver",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Choosin' Texas",
+          "artist": "Ella Langley",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "BbY WOW",
+          "artist": "KAROL G, Judeline & rusowsky",
+          "genres": [
+            "Latin"
+          ]
+        },
+        {
+          "name": "Quebec",
+          "artist": "Drake",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Cold Shoulder",
+          "artist": "Drake, Don Toliver & Yebba",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Janice STFU",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Nicole Kidman",
+          "artist": "ADÉLA",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Last Thing You Need",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Been By Now",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Patient Zero",
+          "artist": "Taylor Swift",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "the cure",
+          "artist": "Olivia Rodrigo",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "stupid song",
+          "artist": "Olivia Rodrigo",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "WAIT FOR U (feat. Drake & Tems)",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Freestyle",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "In A Minute",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "I Can't Love You Anymore",
+          "artist": "Ella Langley & Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Best I Ever Had",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "I’m Spent",
+          "artist": "Drake & Loe Shimmy",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Wicked Games",
+          "artist": "The Weeknd",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Dead Fresh",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Be Her",
+          "artist": "Ella Langley",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "LIKE ME (feat. 42 Dugg & Lil Baby)",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Broken Window Serenade",
+          "artist": "Whiskey Myers",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "I'm The Problem",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "March Madness",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Marvins Room",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Frozen",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "I'M DAT N***A",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "pop it",
+          "artist": "Gunna",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Don't We",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Wants and Needs (feat. Lil Baby)",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "So Good (feat. Kendrick Lamar)",
+          "artist": "Jhené Aiko",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Girls Need Love",
+          "artist": "Summer Walker",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Stick Talk",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Snooze",
+          "artist": "SZA",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Sum 2 Prove",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Kacey Talk",
+          "artist": "YoungBoy Never Broke Again",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Power Trip (feat. Miguel)",
+          "artist": "J. Cole",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Last Night",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Dope Girl",
+          "artist": "Rod Wave",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Cinderella (feat. Ty Dolla $ign)",
+          "artist": "Mac Miller",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Great Expectation",
+          "artist": "SIENNA SPIRO",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Right On",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Just In Case",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Man I Need",
+          "artist": "Olivia Dean",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Don't",
+          "artist": "Bryson Tiller",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Knife Talk (feat. 21 Savage & Project Pat)",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Broken Clocks",
+          "artist": "SZA",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Now Who",
+          "artist": "YoungBoy Never Broke Again",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Boston",
+          "artist": "STELLA LEFTY",
+          "genres": [
+            "Country",
+            "Pop"
+          ]
+        },
+        {
+          "name": "30 For 30 (with Kendrick Lamar)",
+          "artist": "SZA",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Thinkin’ Bout Me",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "WTF GOIN",
+          "artist": "Belly Gang Kushington & 21 Savage",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Wasted On You",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "God's Plan",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Sweater Weather",
+          "artist": "The Neighbourhood",
+          "genres": [
+            "Alternative"
+          ]
+        },
+        {
+          "name": "Yonaguni",
+          "artist": "Bad Bunny",
+          "genres": [
+            "Latin"
+          ]
+        },
+        {
+          "name": "Mr. Brightside",
+          "artist": "The Killers",
+          "genres": [
+            "Rock"
+          ]
+        },
+        {
+          "name": "Cowgirls (feat. ERNEST)",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Passionfruit",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Low Down",
+          "artist": "Lil Baby",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "What I Want",
+          "artist": "Morgan Wallen & Tate McRae",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Body",
+          "artist": "Summer Walker",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Money In The Grave (feat. Rick Ross)",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Not Like Us",
+          "artist": "Kendrick Lamar",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "I Had Some Help (feat. Morgan Wallen)",
+          "artist": "Post Malone",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Tennessee Whiskey",
+          "artist": "Chris Stapleton",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Classic PT2",
+          "artist": "Drake",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Vette Motors",
+          "artist": "YoungBoy Never Broke Again",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Like That",
+          "artist": "Future, Metro Boomin & Kendrick Lamar",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "How It Feels",
+          "artist": "Lil Baby & Lil Durk",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "weren't for the wind",
+          "artist": "Ella Langley",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "A Couple Minutes",
+          "artist": "Olivia Dean",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Shabang",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Orbiter",
+          "artist": "Noah Kahan",
+          "genres": [
+            "Alternative"
+          ]
+        },
+        {
+          "name": "Babylon",
+          "artist": "Taylor Swift",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "bloodstream",
+          "artist": "Alyssa Grace",
+          "genres": [
+            "Alternative"
+          ]
+        },
+        {
+          "name": "No Flockin",
+          "artist": "Kodak Black",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Bitch, Don’t Kill My Vibe",
+          "artist": "Kendrick Lamar",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Poetic Justice (feat. Drake)",
+          "artist": "Kendrick Lamar",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Controlla",
+          "artist": "Drake",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Neon Moon",
+          "artist": "Brooks & Dunn",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Something in the Orange",
+          "artist": "Zach Bryan",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "E85",
+          "artist": "Don Toliver",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Ain't In LA",
+          "artist": "ADÉLA",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Wild Thoughts (feat. Rihanna & Bryson Tiller)",
+          "artist": "DJ Khaled",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Valuable Pain",
+          "artist": "YoungBoy Never Broke Again",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Thriller",
+          "artist": "Michael Jackson",
+          "genres": [
+            "Pop",
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "goosebumps",
+          "artist": "Travis Scott",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Untouchable",
+          "artist": "YoungBoy Never Broke Again",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "712PM",
+          "artist": "Future",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Love Galore (feat. Travis Scott)",
+          "artist": "SZA",
+          "genres": [
+            "R&B/Soul"
+          ]
+        },
+        {
+          "name": "Love Me (feat. Drake & Future)",
+          "artist": "Lil Wayne",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "hate that i made you love me",
+          "artist": "Ariana Grande",
+          "genres": [
+            "Pop"
+          ]
+        },
+        {
+          "name": "Earrings",
+          "artist": "Malcolm Todd",
+          "genres": [
+            "Alternative"
+          ]
+        },
+        {
+          "name": "Money Trees (feat. Jay Rock)",
+          "artist": "Kendrick Lamar",
+          "genres": [
+            "Hip-Hop/Rap"
+          ]
+        },
+        {
+          "name": "Beautiful Crazy",
+          "artist": "Luke Combs",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Jaded",
+          "artist": "Koe Wetzel & Ella Langley",
+          "genres": [
+            "Country"
+          ]
+        },
+        {
+          "name": "Marlboro Rojo",
+          "artist": "Fuerza Regida",
+          "genres": [
+            "Latin"
+          ]
+        },
+        {
+          "name": "You Proof",
+          "artist": "Morgan Wallen",
+          "genres": [
+            "Country"
+          ]
+        }
+      ]
+    }
+  }
 }
