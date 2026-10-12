@@ -58,7 +58,9 @@ ASSET_AUDIO_BOOST = float(os.getenv("ASSET_AUDIO_BOOST", "1.8"))
 
 # Meta Audio API
 AUDIO_TYPE = "music"
-AUDIO_LIMIT = int(os.getenv("AUDIO_LIMIT", "20"))
+AUDIO_LIMIT = int(os.getenv("AUDIO_LIMIT", "50"))
+# Follow Meta's paging cursor for a bigger candidate pool (if it pages).
+AUDIO_MAX_PAGES = int(os.getenv("AUDIO_MAX_PAGES", "4"))
 
 # Publishing
 SHARE_TO_FEED = os.getenv(
@@ -99,16 +101,31 @@ LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "").strip()
 
 # ── Scoring weights (must sum to 1.0) ─────────────────────
 # Override via env vars in generate-video.yml if needed.
-W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.30"))
-W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.20"))
-W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.15"))
-W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.25"))
-W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.10"))
+# Meta's "trending" list is regional (it was returning Bhojpuri/folk tracks)
+# — popular, but wrong for the "are ya winning son?" trend. The two new
+# signals push selection toward songs that are big on real charts (F) and
+# that fit the moment — sad / emotional / romantic (G).
+W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.15"))
+W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.10"))
+W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.05"))
+W_ACCOUNT_PERF      = float(os.getenv("W_ACCOUNT_PERF",      "0.15"))
+W_EXTERNAL_POP      = float(os.getenv("W_EXTERNAL_POP",      "0.05"))
+W_CHART_MATCH       = float(os.getenv("W_CHART_MATCH",       "0.30"))
+W_MOOD_FIT          = float(os.getenv("W_MOOD_FIT",          "0.20"))
+
+# Apple Music "most played" charts used as the viral signal (no API key).
+# Comma-separated ISO country codes, e.g. "in,us,gb".
+CHART_COUNTRIES = [
+    c.strip().lower()
+    for c in os.getenv("CHART_COUNTRIES", "in,us").split(",")
+    if c.strip()
+]
+CHART_SIZE = int(os.getenv("CHART_SIZE", "100"))
 EXPLORATION_RATE    = float(os.getenv("EXPLORATION_RATE",    "0.10"))
 
 _W_SUM = (
     W_TREND_RANK + W_RANK_MOVEMENT + W_TREND_PERSISTENCE
-    + W_ACCOUNT_PERF + W_EXTERNAL_POP
+    + W_ACCOUNT_PERF + W_EXTERNAL_POP + W_CHART_MATCH + W_MOOD_FIT
 )
 if abs(_W_SUM - 1.0) > 0.01:
     print(
@@ -671,6 +688,166 @@ def _account_perf_score(track: dict, matured: list) -> float:
     return 0.5 + confidence * (raw - 0.5)
 
 
+# ============================================================
+# TREND FIT — chart match (F) + mood fit (G)
+# ============================================================
+
+def _title_key(title: str) -> str:
+    """Normalise a song title for cross-source matching: drops
+    '(feat. ...)', '[From ...]', ' - Remix' tails and punctuation."""
+    t = re.sub(r"[\(\[][^)\]]*[\)\]]", " ", title or "")
+    t = re.sub(r"\s+-\s+.*$", " ", t)
+    t = re.sub(r"\bfeat\.?.*$|\bft\.?.*$", " ", t, flags=re.I)
+    return _normalise(t)
+
+
+def _fetch_apple_chart(country: str, size: int) -> list:
+    url = (
+        "https://rss.marketingtools.apple.com/api/v2/"
+        f"{country}/music/most-played/{size}/songs.json"
+    )
+    resp = requests.get(url, timeout=20)
+    resp.raise_for_status()
+    return resp.json().get("feed", {}).get("results", []) or []
+
+
+def load_chart_index(history: dict) -> Dict[str, Dict[str, Any]]:
+    """
+    {title_key: {"rank": best 1-based rank, "country": cc, "artist": str,
+                 "genres": [..]}} from Apple Music charts.
+    Cached in music_history.json for 12 h. Never raises.
+    """
+    cache = history.setdefault("chart_cache", {})
+    now   = datetime.utcnow()
+    index: Dict[str, Dict[str, Any]] = {}
+
+    for cc in CHART_COUNTRIES:
+        entry = cache.get(cc) or {}
+        fresh = False
+        try:
+            age = now - datetime.fromisoformat(
+                entry["cached_at"].replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+            fresh = age < timedelta(hours=12)
+        except (KeyError, ValueError):
+            pass
+
+        if fresh:
+            songs = entry.get("songs", [])
+        else:
+            try:
+                songs = [
+                    {
+                        "name":   r.get("name", ""),
+                        "artist": r.get("artistName", ""),
+                        "genres": [
+                            g.get("name") for g in (r.get("genres") or [])
+                            if isinstance(g, dict) and g.get("name") != "Music"
+                        ],
+                    }
+                    for r in _fetch_apple_chart(cc, CHART_SIZE)
+                ]
+                cache[cc] = {
+                    "cached_at": now.isoformat() + "Z",
+                    "songs":     songs,
+                }
+            except Exception as exc:
+                print(f"  [CHART] {cc}: fetch failed ({exc}) — using stale cache")
+                songs = entry.get("songs", [])
+
+        for rank, song in enumerate(songs, start=1):
+            key = _title_key(song.get("name", ""))
+            if key and (key not in index or rank < index[key]["rank"]):
+                index[key] = {
+                    "rank":    rank,
+                    "country": cc,
+                    "artist":  song.get("artist", ""),
+                    "genres":  song.get("genres") or [],
+                    "size":    max(len(songs), 1),
+                }
+
+    print(
+        f"  Chart index: {len(index)} songs from "
+        f"{', '.join(CHART_COUNTRIES) or 'no countries'}"
+    )
+    return index
+
+
+def _chart_score(track: dict, chart_index: dict) -> tuple:
+    """(0–1 score, match dict or None). #1 on a chart → 1.0, last → ~0.3."""
+    key = _title_key(track.get("title") or track.get("name") or "")
+    hit = chart_index.get(key) if key else None
+    if not hit:
+        return 0.0, None
+    return 1.0 - 0.7 * (hit["rank"] - 1) / max(hit["size"] - 1, 1), hit
+
+
+# The format: dad asks "are ya winning, son?" → son lying on the floor in
+# headphones → the song. It lands when the song says how he's really doing:
+# sad / heartbreak first, then romantic/longing and brooding/hype. Upbeat
+# party and folk/devotional tracks don't fit the moment.
+_MOOD_TAGS = {
+    "sad": {
+        "sad", "emo", "melancholy", "melancholic", "depressing", "heartbreak",
+        "heartbroken", "breakup", "emotional", "lonely", "crying", "sad songs",
+        "slowed", "slowed and reverb", "sadcore", "midwest emo", "dark",
+        "mellow", "ghazal", "sufi",
+    },
+    "love": {
+        "love", "romantic", "love songs", "romance", "bollywood romantic",
+        "ballad", "soft", "chill", "lofi", "lo-fi", "acoustic", "indie",
+    },
+    "hype": {
+        "phonk", "drift phonk", "trap", "drill", "rage", "hip-hop", "rap",
+        "hip-hop/rap", "punjabi pop",
+    },
+    "party": {
+        "party", "dance", "edm", "house", "club", "bhojpuri", "folk",
+        "devotional", "bhakti", "children's music", "holiday",
+    },
+}
+_MOOD_WORDS = {
+    "sad": {
+        # English
+        "sad", "cry", "crying", "tears", "alone", "lonely", "miss", "goodbye",
+        "broken", "hurt", "pain", "lost", "without", "gone", "empty", "sorry",
+        "heartbreak", "over", "die", "dying", "ghost", "cold",
+        # Hindi / Urdu / Punjabi (romanised)
+        "tanha", "tanhai", "judaai", "judai", "bewafa", "yaad", "yaadein",
+        "dard", "aansu", "rona", "tadap", "bichad", "bichhad", "alvida",
+        "khamoshi", "adhura", "adhoore", "toota", "tuta", "barbaad", "gham",
+        "akela", "door", "dooriyan", "kho", "bekhayali", "kabira", "channa",
+    },
+    "love": {
+        "love", "lover", "baby", "heart", "kiss", "eyes", "darling",
+        "ishq", "pyaar", "pyar", "mohabbat", "dil", "jaan", "tera", "teri",
+        "sajna", "mahiya", "raanjhana", "humsafar", "tum", "kesariya",
+    },
+    "hype": {"villain", "phonk", "rage", "war", "demon", "gangsta", "bad"},
+    "party": {
+        "party", "dance", "nachna", "nacho", "thumka", "daru", "sharaab",
+        "bhojpuri", "holi", "dj",
+    },
+}
+_MOOD_SCORE = {"sad": 1.0, "love": 0.8, "hype": 0.55, "unknown": 0.4, "party": 0.05}
+
+
+def _song_mood(track: dict, chart_hit: Optional[dict] = None) -> str:
+    tags = {
+        t.lower().strip()
+        for t in ((track.get("_lastfm") or {}).get("tags") or [])
+    }
+    tags |= {g.lower() for g in ((chart_hit or {}).get("genres") or [])}
+    for mood in ("sad", "love", "hype", "party"):
+        if tags & _MOOD_TAGS[mood]:
+            return mood
+    words = set(_normalise(track.get("title") or track.get("name") or "").split())
+    for mood in ("sad", "love", "hype", "party"):
+        if words & _MOOD_WORDS[mood]:
+            return mood
+    return "unknown"
+
+
 def _score_candidate(
     track: dict,
     key: str,
@@ -678,6 +855,7 @@ def _score_candidate(
     n: int,
     candidate_history: list,
     matured: list,
+    chart_index: Optional[dict] = None,
 ) -> dict:
     """
     Calculate all five scoring signals for one candidate.
@@ -724,13 +902,28 @@ def _score_candidate(
     else:
         E = 0.0
 
+    # F — On a real chart (Apple Music most-played) = genuinely viral
+    chart_s, chart_hit = _chart_score(track, chart_index or {})
+    F = W_CHART_MATCH * chart_s
+
+    # G — Fits the "are ya winning son?" moment
+    mood = _song_mood(track, chart_hit)
+    G = W_MOOD_FIT * _MOOD_SCORE[mood]
+
     return {
         "A":             A,
         "B":             B,
         "C":             C,
         "D":             D,
         "E":             E,
-        "total":         A + B + C + D + E,
+        "F":             F,
+        "G":             G,
+        "mood":          mood,
+        "chart":         (
+            f"#{chart_hit['rank']} {chart_hit['country'].upper()}"
+            if chart_hit else None
+        ),
+        "total":         A + B + C + D + E + F + G,
         "rank_score":    rank_score,
         "move_score":    movement_score,
         "persist_score": persist,
@@ -808,6 +1001,51 @@ def snapshot_mature_reels(state: ReelState) -> ReelState:
 # SELECT MUSIC  (replaces find_trending_audio)
 # ============================================================
 
+def _parse_catalog(result) -> list:
+    raw = None
+    if isinstance(result, dict):
+        raw = result.get("audio") or result.get("data") or result.get("items")
+    elif isinstance(result, list):
+        raw = result
+    return [
+        item for item in (raw or [])
+        if isinstance(item, dict) and (item.get("audio_id") or item.get("id"))
+    ]
+
+
+def _fetch_meta_catalog() -> list:
+    """Meta /ig_audio candidates, following paging.after for up to
+    AUDIO_MAX_PAGES pages. De-duplicated, order preserved (= trend rank)."""
+    params: Dict[str, Any] = {
+        "ig_user_id": IG_USER_ID,
+        "audio_type": AUDIO_TYPE,
+        "limit":      AUDIO_LIMIT,
+    }
+    tracks, seen = [], set()
+    for page in range(max(AUDIO_MAX_PAGES, 1)):
+        try:
+            result = graph_get("/ig_audio", dict(params))
+        except RuntimeError:
+            if page == 0:
+                raise
+            print(f"  [CATALOG] page {page + 1} failed — keeping {len(tracks)}")
+            break
+        batch = _parse_catalog(result)
+        new = 0
+        for t in batch:
+            tid = str(t.get("audio_id") or t.get("id"))
+            if tid not in seen:
+                seen.add(tid); tracks.append(t); new += 1
+        after = (
+            ((result.get("paging") or {}).get("cursors") or {}).get("after")
+            if isinstance(result, dict) else None
+        )
+        if not after or not new:
+            break
+        params["after"] = after
+    return tracks
+
+
 def select_music(state: ReelState) -> ReelState:
     """
     1. Fetch ~20 Meta trending candidates.
@@ -819,32 +1057,9 @@ def select_music(state: ReelState) -> ReelState:
     """
     print("\n=== SELECT MUSIC ===")
 
-    # ── Step A: Fetch Meta candidates ────────────────────────
-    result = graph_get(
-        "/ig_audio",
-        {
-            "ig_user_id": IG_USER_ID,
-            "audio_type": AUDIO_TYPE,
-            "limit":      AUDIO_LIMIT,
-        },
-    )
-
-    print(json.dumps(result, indent=2))
-
-    raw = (
-        result.get("audio")
-        or result.get("data")
-        or result.get("items")
-    )
-    if raw is None and isinstance(result, list):
-        raw = result
-
-    all_tracks = [
-        item
-        for item in (raw or [])
-        if isinstance(item, dict)
-        and (item.get("audio_id") or item.get("id"))
-    ]
+    # ── Step A: Fetch Meta candidates (follow paging if offered) ─
+    all_tracks = _fetch_meta_catalog()
+    result = {"count": len(all_tracks)}
 
     if not all_tracks:
         raise RuntimeError(
@@ -853,6 +1068,8 @@ def select_music(state: ReelState) -> ReelState:
         )
 
     print(f"\nMeta returned {len(all_tracks)} candidate(s).")
+    for i, t in enumerate(all_tracks[:60], start=1):
+        print(f"  {i:02d}. {t.get('title') or t.get('name')} — {t.get('artist') or ''}")
 
     # ── Step B: Record candidate ranks for this run ───────────
     # (used for rank-movement and persistence scoring in future runs)
@@ -936,6 +1153,8 @@ def select_music(state: ReelState) -> ReelState:
     print(f"  {len(fresh)} candidate(s) remain after exclusions.")
 
     # ── Step E: Score each remaining candidate ────────────────
+    print("\n--- Chart / Mood Fit ---")
+    chart_index  = load_chart_index(history)
     matured      = _matured_stats(history.get("reels", []))
     n            = len(all_tracks)
     cand_history = history.get("candidate_history", [])
@@ -955,6 +1174,7 @@ def select_music(state: ReelState) -> ReelState:
             n                 = n,
             candidate_history = cand_history,
             matured           = matured,
+            chart_index       = chart_index,
         )
         track["_final_score"] = track["_scores"]["total"]
         track["_rank_1based"] = rank_idx + 1
@@ -975,6 +1195,8 @@ def select_music(state: ReelState) -> ReelState:
             f" | score={t['_final_score']:.3f}"
             f" | A={s['A']:.3f} B={s['B']:.3f}"
             f" C={s['C']:.3f} D={s['D']:.3f} E={s['E']:.3f}"
+            f" F={s['F']:.3f} G={s['G']:.3f}"
+            f" | chart={s['chart']} mood={s['mood']}"
             f" | rank=#{t['_rank_1based']} {move_str}"
             f" | tags={(t.get('_lastfm') or {}).get('tags')}"
             f" | listeners={listeners}"
@@ -1004,6 +1226,10 @@ def select_music(state: ReelState) -> ReelState:
         f" C={sel_s['C']:.3f}"
         f" D={sel_s['D']:.3f}"
         f" E={sel_s['E']:.3f}"
+        f" F={sel_s['F']:.3f}"
+        f" G={sel_s['G']:.3f}"
+        f" chart={sel_s['chart']}"
+        f" mood={sel_s['mood']}"
         f" listeners={listeners}"
         f" mode={expl_str}"
     )
@@ -2020,27 +2246,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
     else:
         print(f"\n  Fetching Meta /ig_audio catalog to find: '{raw_input}'")
 
-        catalog = graph_get(
-            "/ig_audio",
-            {
-                "ig_user_id": IG_USER_ID,
-                "audio_type": AUDIO_TYPE,
-                "limit":      AUDIO_LIMIT,
-            },
-        )
-
-        raw = (
-            catalog.get("audio")
-            or catalog.get("data")
-            or catalog.get("items")
-        )
-        if raw is None and isinstance(catalog, list):
-            raw = catalog
-
-        all_tracks = [
-            item for item in (raw or [])
-            if isinstance(item, dict) and (item.get("audio_id") or item.get("id"))
-        ]
+        all_tracks = _fetch_meta_catalog()
 
         if not all_tracks:
             raise RuntimeError(
