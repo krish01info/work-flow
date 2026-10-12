@@ -132,4 +132,6 @@ jobs:
           git add assets/music_history.json
           git diff --cached --quiet || \
             git commit -m "chore: update music history [skip ci]"
+          # main may have moved during the run (e.g. a code push) — rebase first
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
           git push
