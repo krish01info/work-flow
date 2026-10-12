@@ -89,9 +89,10 @@ jobs:
           # Reel config (override defaults via secrets if needed)
           ASSET_VIDEO:            assets/the_transition_i_n_between_is.mp4
           OUTPUT_VIDEO:           final_reel.mp4
-          MUSIC_START_SECONDS:    "5.0"
-          LOOP_START_SECONDS:     "9.5"
-          REEL_MAX_DURATION:      "90"
+          ASSET_TRIM_START:       "0.5"
+          MUSIC_START_SECONDS:    "3.3"
+          LOOP_START_SECONDS:     "9.0"
+          REEL_MAX_DURATION:      "15"
           PUBLISH_REEL:           "true"
           INSTAGRAM_CAPTION:      ${{ secrets.INSTAGRAM_CAPTION }}
           SHARE_TO_FEED:          "true"

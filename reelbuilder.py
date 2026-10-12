@@ -37,14 +37,20 @@ OUTPUT_VIDEO = os.getenv("OUTPUT_VIDEO", "final_reel.mp4")
 
 CAPTION = os.getenv("INSTAGRAM_CAPTION", "")
 
-# How much of the original asset stays before catalog music.
+# Seconds cut from the very start of the asset. The clip opens on ~0.5 s of
+# a dark, closed door — dead air in the most important second of a Reel.
+# All other timings below are measured AFTER this trim (= reel time).
+ASSET_TRIM_START = float(os.getenv("ASSET_TRIM_START", "0.5"))
+
+# When the catalog song comes in. The dad's line ends ~3.0 s into the
+# trimmed clip, so the song lands right after it instead of waiting till 5 s.
 MUSIC_START_SECONDS = float(
-    os.getenv("MUSIC_START_SECONDS", "5.0")
+    os.getenv("MUSIC_START_SECONDS", "3.3")
 )
 
 # The section that should loop forever after the original asset ends.
 LOOP_START_SECONDS = float(
-    os.getenv("LOOP_START_SECONDS", "9.5")
+    os.getenv("LOOP_START_SECONDS", "9.0")
 )
 
 # Output video settings
@@ -133,17 +139,20 @@ if abs(_W_SUM - 1.0) > 0.01:
         "Scores will still rank correctly but totals won't be 0–1."
     )
 
+# Reel cover frame, in ms of the final reel. Default = son on the rug with
+# the dad in the lit doorway — the most striking frame — instead of
+# whatever (often dark) frame Instagram picks.
+THUMB_OFFSET_MS = int(os.getenv("THUMB_OFFSET_MS", "8000"))
+
 # ── Framing of the asset clip ──
 # When the camera leaves the dad and starts panning over the son's room.
-SON_SHOT_START = float(os.getenv("SON_SHOT_START", "5.0"))
+SON_SHOT_START = float(os.getenv("SON_SHOT_START", "4.5"))
 # Horizontal slice of the source (0–1) kept for the son shot. The pan
 # covers the son, laptop and doorway, which is too wide for a 9:16 crop,
 # so this slice is shown full-width over a blurred copy of the frame.
 SON_CROP_X0 = float(os.getenv("SON_CROP_X0", "0.25"))
 SON_CROP_X1 = float(os.getenv("SON_CROP_X1", "0.80"))
 
-# Hashtag counts barely move day to day — cache them to save API calls.
-HASHTAG_CACHE_TTL_DAYS = int(os.getenv("HASHTAG_CACHE_TTL_DAYS", "7"))
 
 # Music history persistence
 MUSIC_HISTORY_PATH       = Path("assets/music_history.json")
@@ -219,6 +228,7 @@ class ReelState(TypedDict, total=False):
     media_id: str
 
     caption: str
+    caption_hook: str
 
     status: str
     error: str
@@ -1294,64 +1304,41 @@ def select_music(state: ReelState) -> ReelState:
 # GENERATE SHORT TRENDING CAPTION
 # ============================================================
 
-# Seed hashtag queries to search on Meta (music / song niche)
-_HASHTAG_SEEDS = [
-    "songs", "music", "viral", "reels", "trending",
-    "fyp", "explorepage", "newmusic",
+# Captions are written to earn saves, shares and comments — the signals
+# Reels ranks on — and to be found by people who follow the trend.
+# Several variants rotate so consecutive posts never share a caption.
+_CAPTION_HOOKS = [
+    "are ya winning, son? 🎧",
+    "dad: are ya winning, son?\nme: 🎧",
+    "he's not winning. he's listening to this 🎧",
+    "are ya winning, son? (he's not) 🎧",
+    "this song at 3am hits different 🎧",
 ]
-
-# Always append these regardless of API result
-_FIXED_TAGS = ["#reels", "#songs", "#viral"]
-
-
-def _fetch_hashtag_id(tag: str) -> Optional[str]:
-    """Return Meta hashtag object ID for a given tag name, or None."""
-    try:
-        result = graph_get(
-            "/ig_hashtag_search",
-            {
-                "user_id": IG_USER_ID,
-                "q": tag,
-            },
-        )
-        data = result.get("data", [])
-        if data and isinstance(data, list):
-            return data[0].get("id")
-    except Exception as exc:
-        print(f"  hashtag search failed for '{tag}': {exc}")
-    return None
+_CAPTION_CTAS = [
+    "save this for your late night playlist 🔖",
+    "send this to someone who needs to hear it 💬",
+    "tag the friend who plays this on repeat 👇",
+    "rate this song 1-10 in the comments 👇",
+    "follow for a new song every day 🎶",
+]
+# Niche first (less crowded, where the trend lives), then song-discovery.
+_HASHTAG_POOL_CORE = ["#areyouwinningson", "#songs"]
+_HASHTAG_POOL_ROTATE = [
+    "#sadsongs", "#latenightvibes", "#songlyrics", "#musicreels",
+    "#trendingsongs", "#vibes", "#relatable", "#songoftheday",
+]
+_MOOD_HASHTAGS = {
+    "sad":   ["#sadsongs", "#heartbreak"],
+    "love":  ["#lovesongs", "#romantic"],
+    "hype":  ["#gymmotivation", "#phonk"],
+    "party": ["#partysongs"],
+}
 
 
-def _fetch_hashtag_media_count(hashtag_id: str) -> int:
-    """Return media_count for a hashtag ID, or 0 on error."""
-    try:
-        result = graph_get(
-            f"/{hashtag_id}",
-            {"fields": "name,media_count"},
-        )
-        return int(result.get("media_count") or 0)
-    except Exception:
-        return 0
-
-
-def _build_short_hook(audio_title: str) -> str:
-    """
-    Build a ≤7-word hook from the audio title.
-    e.g. 'Blinding Lights' -> '🎵 Blinding Lights on repeat ✨'
-    """
-    # Strip featured-artist suffixes like '(feat. ...)'  / '[prod. ...]'
-    clean = re.sub(
-        r"[\(\[][^)\]]*[\)\]]",
-        "",
-        audio_title,
-    ).strip()
-
-    words = clean.split()
-
-    # Keep at most 4 title words so hook stays within 6-7 total
-    title_part = " ".join(words[:4])
-
-    return f"🎵 {title_part} on repeat ✨"
+def _artist_tag(artist: str) -> Optional[str]:
+    first = re.split(r",|&| x | feat\.?| ft\.?", artist or "", flags=re.I)[0]
+    tag = re.sub(r"[^0-9a-zA-Z]", "", first)
+    return f"#{tag.lower()}" if 3 <= len(tag) <= 25 else None
 
 
 def generate_caption(state: ReelState):
@@ -1359,74 +1346,38 @@ def generate_caption(state: ReelState):
     print("\n=== GENERATE CAPTION ===")
 
     audio_title = state.get("audio_title", "")
+    meta        = state.get("audio_metadata") or {}
+    artist      = (meta.get("artist") or "").strip()
+    mood        = _song_mood(meta)
 
-    # --- short hook (≤7 words) ---
-    hook = _build_short_hook(audio_title)
-    print(f"  Hook: {hook}")
+    recent = [
+        r.get("caption_hook")
+        for r in load_history().get("reels", [])[-3:]
+    ]
+    hooks = [h for h in _CAPTION_HOOKS if h not in recent] or _CAPTION_HOOKS
+    hook  = random.choice(hooks)
+    cta   = random.choice(_CAPTION_CTAS)
 
-    # --- hashtag post counts (cached; they barely change day to day) ---
-    tag_data: list[tuple[int, str]] = []  # (media_count, "#name")
+    clean_title = re.sub(r"[\(\[][^)\]]*[\)\]]", "", audio_title).strip()
+    credit = f"🎵 {clean_title}" + (f" — {artist}" if artist else "")
 
-    history = load_history()
-    cache   = history.setdefault("hashtag_cache", {})
-    now     = datetime.utcnow()
-    fetched = 0
+    tags = list(_HASHTAG_POOL_CORE)
+    tags += _MOOD_HASHTAGS.get(mood, [])[:1]
+    tags += random.sample(_HASHTAG_POOL_ROTATE, 2)
+    at = _artist_tag(artist)
+    if at:
+        tags.append(at)
+    seen: set = set()
+    tags = [t for t in tags if not (t in seen or seen.add(t))][:5]
 
-    for seed in _HASHTAG_SEEDS:
-        entry = cache.get(seed)
-        fresh = False
-        if entry:
-            try:
-                cached_at = datetime.fromisoformat(
-                    entry["cached_at"].replace("Z", "+00:00")
-                ).replace(tzinfo=None)
-                fresh = (now - cached_at).days < HASHTAG_CACHE_TTL_DAYS
-            except (KeyError, ValueError):
-                fresh = False
-
-        if fresh:
-            count = int(entry.get("media_count") or 0)
-            print(f"  #{seed}: {count:,} posts (cached)")
-        else:
-            hid = _fetch_hashtag_id(seed)
-            if not hid:
-                continue
-            count = _fetch_hashtag_media_count(hid)
-            if count:
-                cache[seed] = {
-                    "media_count": count,
-                    "cached_at":   now.isoformat() + "Z",
-                }
-                fetched += 1
-            print(f"  #{seed}: {count:,} posts")
-
-        tag_data.append((count, f"#{seed}"))
-
-    if fetched:
-        save_history(history)
-
-    # Sort by media_count descending, keep top 4
-    tag_data.sort(key=lambda x: x[0], reverse=True)
-    top_tags = [t for _, t in tag_data[:4]]
-
-    # Merge with fixed tags, deduplicate, keep order
-    all_tags: list[str] = []
-    seen: set[str] = set()
-    for t in top_tags + _FIXED_TAGS:
-        if t not in seen:
-            all_tags.append(t)
-            seen.add(t)
-
-    hashtags = " ".join(all_tags)
-
-    # Final caption: hook + blank line + hashtags
-    caption = f"{hook}\n\n{hashtags}"
+    caption = f"{hook}\n\n{credit}\n{cta}\n\n{' '.join(tags)}"
 
     print(f"\n  Caption:\n{caption}")
 
     return {
         **state,
-        "caption": caption,
+        "caption":      caption,
+        "caption_hook": hook,
     }
 
 
@@ -1436,7 +1387,10 @@ def generate_caption(state: ReelState):
 # ============================================================
 
 # Instagram Reel maximum duration in seconds
-REEL_MAX_DURATION = float(os.getenv("REEL_MAX_DURATION", "90"))
+# Short on purpose: Reels are ranked heavily on watch-through and replays.
+# A 15 s reel people finish (and loop) beats a 90 s one they leave at 10 s,
+# especially with a single looping visual.
+REEL_MAX_DURATION = float(os.getenv("REEL_MAX_DURATION", "15"))
 
 
 def calculate_video_duration(state: ReelState):
@@ -1445,7 +1399,11 @@ def calculate_video_duration(state: ReelState):
 
     asset = state["asset_video"]
 
-    duration = get_video_duration(asset)
+    duration = get_video_duration(asset) - ASSET_TRIM_START
+    if duration <= 1:
+        raise RuntimeError(
+            f"ASSET_TRIM_START={ASSET_TRIM_START} leaves only {duration:.2f}s of asset."
+        )
 
     audio_duration = state["audio_duration"]
 
@@ -1577,6 +1535,7 @@ def build_video(state: ReelState):
 
         run([
             "ffmpeg", "-y",
+            "-ss", f"{ASSET_TRIM_START:.3f}",
             "-i", asset,
             "-filter_complex", filter_complex,
             "-map", "[v]",
@@ -1653,6 +1612,7 @@ def build_video(state: ReelState):
         if _has_audio_stream(asset):
             run([
                 "ffmpeg", "-y",
+                "-ss", f"{ASSET_TRIM_START:.3f}",
                 "-i", asset,
                 "-t", str(MUSIC_START_SECONDS),
                 "-vn",
@@ -1895,6 +1855,10 @@ def create_reel_container(state: ReelState):
         ).lower(),
     }
 
+    final_ms = int(float(state.get("final_duration") or 0) * 1000)
+    if THUMB_OFFSET_MS > 0 and (not final_ms or THUMB_OFFSET_MS < final_ms):
+        params["thumb_offset"] = str(THUMB_OFFSET_MS)
+
     # Attach trending audio via audio_configuration.
     # Per Meta Graph API docs, the correct field is audio_configuration
     # which accepts a JSON object with audio_id, audio_volume, video_volume.
@@ -1904,7 +1868,7 @@ def create_reel_container(state: ReelState):
         params["audio_configuration"] = json.dumps({
             "audio_id": audio_id,
             "audio_volume": 100,
-            "video_volume": 100,  # keep asset clip audio audible in first 5s
+            "video_volume": 100,  # keep the dad's line audible before the song
         })
         print(
             f"Attaching audio_configuration:"
@@ -2125,6 +2089,7 @@ def record_new_reel(state: ReelState) -> ReelState:
         "selection_mode":   state.get("selection_mode", SELECTION_MODE),
         "selected_score":   state.get("selected_score"),
         "selection_reason": state.get("selection_reason", ""),
+        "caption_hook":     state.get("caption_hook"),
         "meta_rank":        audio_meta.get("_meta_rank"),
         "external_metadata": (
             {k: v for k, v in lastfm.items() if k != "cached_at"}
@@ -2430,6 +2395,8 @@ def main():
     print(
         f"\nAsset: {ASSET_VIDEO}"
     )
+
+    print(f"Trim start: {ASSET_TRIM_START}s")
 
     print(
         f"Music start: "
