@@ -1,0 +1,52 @@
+{
+  "fallback": "sad",
+  "clips": [
+    {
+      "name": "sad_a",
+      "mood": "sad",
+      "file": "assets/the_transition_i_n_between_is.mp4",
+      "trim_start": 0.5,
+      "music_start": 3.3,
+      "loop_start": 9.0,
+      "loop_crossfade": 0,
+      "thumb_offset_ms": 8000,
+      "framing": {"mode": "split", "split_at": 4.5, "slice_x0": 0.25, "slice_x1": 0.80}
+    },
+    {
+      "name": "love_a",
+      "mood": "love",
+      "file": "assets/clips/love_a.mp4",
+      "trim_start": 0,
+      "music_start": 2.5,
+      "loop_start": 5.0,
+      "loop_crossfade": 0.5,
+      "audio_boost": 1.5,
+      "thumb_offset_ms": 6000,
+      "framing": {"mode": "cover", "center_x": 0.516}
+    },
+    {
+      "name": "hype_a",
+      "mood": "hype",
+      "file": "assets/clips/hype_a.mp4",
+      "trim_start": 0,
+      "music_start": 2.5,
+      "loop_start": 5.0,
+      "loop_crossfade": 0.5,
+      "audio_boost": 1.48,
+      "thumb_offset_ms": 4200,
+      "framing": {"mode": "cover", "zoom": 1.18}
+    },
+    {
+      "name": "party_a",
+      "mood": "party",
+      "file": "assets/clips/party_a.mp4",
+      "trim_start": 0,
+      "music_start": 2.5,
+      "loop_start": 5.0,
+      "loop_crossfade": 0.5,
+      "audio_boost": 1.28,
+      "thumb_offset_ms": 6000,
+      "framing": {"mode": "cover", "center_x": 0.41}
+    }
+  ]
+}

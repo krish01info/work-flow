@@ -56,13 +56,22 @@ jobs:
           pip install --upgrade pip
           pip install --prefer-binary -r requirements.txt
 
-      - name: Confirm asset video exists
+      - name: Confirm mood clips exist
         run: |
-          if [ ! -f "assets/the_transition_i_n_between_is.mp4" ]; then
-            echo "::error::Asset video not found — commit assets/the_transition_i_n_between_is.mp4 to the repo"
-            exit 1
-          fi
-          echo "Asset video found: $(du -sh assets/the_transition_i_n_between_is.mp4)"
+          python - <<'EOF'
+          import json, pathlib, sys
+          manifest = json.loads(pathlib.Path("assets/clips/clips.json").read_text(encoding="utf-8"))
+          missing = []
+          for clip in manifest["clips"]:
+              found = pathlib.Path(clip["file"]).is_file()
+              print(f'{clip["mood"]:>6}  {clip["name"]:<8}  {clip["file"]}  {"ok" if found else "MISSING"}')
+              if not found:
+                  missing.append(clip["file"])
+          print(f'moods without a clip use: {manifest.get("fallback", "sad")}')
+          if missing:
+              print("::error::Clip files missing from the repo: " + ", ".join(missing))
+              sys.exit(1)
+          EOF
 
       - name: Validate inputs
         run: |
@@ -86,12 +95,10 @@ jobs:
           GOOGLE_CLIENT_SECRET:   ${{ secrets.GOOGLE_CLIENT_SECRET }}
           DRIVE_REFRESH_TOKEN:    ${{ secrets.DRIVE_REFRESH_TOKEN }}
 
-          # Reel config (override defaults via secrets if needed)
-          ASSET_VIDEO:            assets/the_transition_i_n_between_is.mp4
+          # Reel config (override defaults via secrets if needed).
+          # Each clip's timings, framing and cover frame live in
+          # assets/clips/clips.json; the song's mood picks the clip.
           OUTPUT_VIDEO:           final_reel.mp4
-          ASSET_TRIM_START:       "0.5"
-          MUSIC_START_SECONDS:    "3.3"
-          LOOP_START_SECONDS:     "9.0"
           REEL_MAX_DURATION:      "15"
           PUBLISH_REEL:           "true"
           INSTAGRAM_CAPTION:      ${{ secrets.INSTAGRAM_CAPTION }}
@@ -102,7 +109,8 @@ jobs:
           VIDEO_HEIGHT:           "1920"
           VIDEO_FPS:              "30"
 
-          # Audio — boost asset clip volume in first 5s (1.0 = original, 1.8 = 80% louder)
+          # Audio — boost for the dad's line (1.0 = original, 1.8 = 80% louder).
+          # Clips with their own "audio_boost" in clips.json use that instead.
           ASSET_AUDIO_BOOST:      "1.8"
           # Last.fm API key for external music metadata (optional)
           LASTFM_API_KEY:         ${{ secrets.LASTFM_API_KEY }}

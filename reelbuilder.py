@@ -58,7 +58,8 @@ WIDTH = int(os.getenv("VIDEO_WIDTH", "1080"))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT", "1920"))
 FPS = int(os.getenv("VIDEO_FPS", "30"))
 
-# Volume boost for the asset audio in the first MUSIC_START_SECONDS.
+# Volume boost for the clip's own audio before the song comes in. A clip
+# can override it with "audio_boost" in the clips manifest.
 # 1.0 = original level, 1.5 = 50% louder, 2.0 = twice as loud.
 ASSET_AUDIO_BOOST = float(os.getenv("ASSET_AUDIO_BOOST", "1.8"))
 
@@ -107,10 +108,9 @@ LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "").strip()
 
 # ── Scoring weights (must sum to 1.0) ─────────────────────
 # Override via env vars in generate-video.yml if needed.
-# Meta's "trending" list is regional (it was returning Bhojpuri/folk tracks)
-# — popular, but wrong for the "are ya winning son?" trend. The two new
-# signals push selection toward songs that are big on real charts (F) and
-# that fit the moment — sad / emotional / romantic (G).
+# Meta's "trending" list is regional (it was returning Bhojpuri/folk tracks),
+# so F pushes selection toward songs that are big on real charts. G (mood)
+# no longer favours sad songs: every mood now has its own clip.
 W_TREND_RANK        = float(os.getenv("W_TREND_RANK",        "0.15"))
 W_RANK_MOVEMENT     = float(os.getenv("W_RANK_MOVEMENT",     "0.10"))
 W_TREND_PERSISTENCE = float(os.getenv("W_TREND_PERSISTENCE", "0.05"))
@@ -152,6 +152,13 @@ SON_SHOT_START = float(os.getenv("SON_SHOT_START", "4.5"))
 # so this slice is shown full-width over a blurred copy of the frame.
 SON_CROP_X0 = float(os.getenv("SON_CROP_X0", "0.25"))
 SON_CROP_X1 = float(os.getenv("SON_CROP_X1", "0.80"))
+
+# ── Mood clips ──
+# One clip per song mood (sad / love / hype / party / unknown), each with
+# its own timings, framing and cover frame. Moods without a clip use the
+# manifest's "fallback" mood. Without a manifest, ASSET_VIDEO and the
+# settings above are used as the only clip.
+CLIPS_MANIFEST = Path(os.getenv("CLIPS_MANIFEST", "assets/clips/clips.json"))
 
 
 # Music history persistence
@@ -198,9 +205,14 @@ def validate_environment():
             + "\n".join(f"  - {x}" for x in missing)
         )
 
-    if not Path(ASSET_VIDEO).exists():
+    missing_clips = [
+        c["file"] for c in load_clips()["clips"]
+        if not Path(c["file"]).exists()
+    ]
+    if missing_clips:
         raise FileNotFoundError(
-            f"Asset video does not exist: {ASSET_VIDEO}"
+            "Clip video(s) do not exist:\n"
+            + "\n".join(f"  - {x}" for x in missing_clips)
         )
 
 
@@ -238,6 +250,9 @@ class ReelState(TypedDict, total=False):
     selection_reason:    str     # scoring breakdown or "manual"
     selection_mode:      str     # "auto" | "manual"
     last_candidate_keys: list    # all candidate keys from this run
+
+    song_mood:           str     # sad | love | hype | party | devotional | unknown
+    clip:                Dict[str, Any]   # manifest entry chosen by choose_clip
 
 
 # ============================================================
@@ -365,6 +380,36 @@ def _has_audio_stream(path: str) -> bool:
     return bool(result.stdout.strip())
 
 
+def _video_size(path: str) -> tuple:
+    result = run([
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=p=0:s=x",
+        path,
+    ])
+    width, height = result.stdout.strip().split("x")[:2]
+    return int(width), int(height)
+
+
+def _cover_crop(path: str, framing: dict) -> str:
+    """
+    Filter that crops a WIDTH:HEIGHT window out of the source and scales it
+    to WIDTH x HEIGHT. center_x / center_y (0–1) place the window; zoom > 1
+    crops tighter, e.g. to drop a vignette baked into the frame edges.
+    """
+    src_w, src_h = _video_size(path)
+    aspect = WIDTH / HEIGHT
+    zoom   = max(float(framing.get("zoom", 1.0)), 1.0)
+    w = int(min(src_w, src_h * aspect) / zoom) // 2 * 2
+    h = min(int(w / aspect) // 2 * 2, src_h)
+    x = round(src_w * float(framing.get("center_x", 0.5)) - w / 2)
+    y = round(src_h * float(framing.get("center_y", 0.5)) - h / 2)
+    x = min(max(x, 0), src_w - w)
+    y = min(max(y, 0), src_h - h)
+    return f"crop={w}:{h}:{x}:{y},scale={WIDTH}:{HEIGHT},setsar=1"
+
+
 # ============================================================
 # MUSIC HISTORY HELPERS
 # ============================================================
@@ -385,6 +430,11 @@ def _song_key(track: dict, lastfm: Optional[dict] = None) -> str:
     if lastfm and lastfm.get("mbid"):
         return f"mbid:{lastfm['mbid']}"
     return _text_key(track)
+
+
+def _artist(track: dict) -> str:
+    """Meta's /ig_audio returns the artist as `display_artist`, not `artist`."""
+    return (track.get("artist") or track.get("display_artist") or "").strip()
 
 
 def _text_key(track: dict) -> str:
@@ -792,11 +842,12 @@ def _chart_score(track: dict, chart_index: dict) -> tuple:
     return 1.0 - 0.7 * (hit["rank"] - 1) / max(hit["size"] - 1, 1), hit
 
 
-# The format: dad asks "are ya winning, son?" → son lying on the floor in
-# headphones → the song. It lands when the song says how he's really doing:
-# sad / heartbreak first, then romantic/longing and brooding/hype. Upbeat
-# party and folk/devotional tracks don't fit the moment.
+# Song mood picks the clip the reel uses (see choose_clip). Checked in the
+# order of _MOOD_ORDER; anything unmatched is "unknown". Devotional songs
+# get their own bucket so they never land on a meme clip.
+_MOOD_ORDER = ("devotional", "sad", "love", "hype", "party")
 _MOOD_TAGS = {
+    "devotional": {"devotional", "bhakti", "bhajan", "aarti", "spiritual", "gospel"},
     "sad": {
         "sad", "emo", "melancholy", "melancholic", "depressing", "heartbreak",
         "heartbroken", "breakup", "emotional", "lonely", "crying", "sad songs",
@@ -813,10 +864,11 @@ _MOOD_TAGS = {
     },
     "party": {
         "party", "dance", "edm", "house", "club", "bhojpuri", "folk",
-        "devotional", "bhakti", "children's music", "holiday",
+        "children's music", "holiday",
     },
 }
 _MOOD_WORDS = {
+    "devotional": {"bhajan", "aarti", "chalisa", "mantra", "bhakti", "stuti", "vandana"},
     "sad": {
         # English
         "sad", "cry", "crying", "tears", "alone", "lonely", "miss", "goodbye",
@@ -839,7 +891,13 @@ _MOOD_WORDS = {
         "bhojpuri", "holi", "dj",
     },
 }
-_MOOD_SCORE = {"sad": 1.0, "love": 0.8, "hype": 0.55, "unknown": 0.4, "party": 0.05}
+# Every mood has a clip (moods without one use the fallback clip), so mood
+# no longer changes which song wins, except devotional songs, kept out as
+# before.
+_MOOD_SCORE = {
+    "sad": 1.0, "love": 1.0, "hype": 1.0, "party": 1.0, "unknown": 1.0,
+    "devotional": 0.0,
+}
 
 
 def _song_mood(track: dict, chart_hit: Optional[dict] = None) -> str:
@@ -848,11 +906,11 @@ def _song_mood(track: dict, chart_hit: Optional[dict] = None) -> str:
         for t in ((track.get("_lastfm") or {}).get("tags") or [])
     }
     tags |= {g.lower() for g in ((chart_hit or {}).get("genres") or [])}
-    for mood in ("sad", "love", "hype", "party"):
+    for mood in _MOOD_ORDER:
         if tags & _MOOD_TAGS[mood]:
             return mood
     words = set(_normalise(track.get("title") or track.get("name") or "").split())
-    for mood in ("sad", "love", "hype", "party"):
+    for mood in _MOOD_ORDER:
         if words & _MOOD_WORDS[mood]:
             return mood
     return "unknown"
@@ -916,7 +974,7 @@ def _score_candidate(
     chart_s, chart_hit = _chart_score(track, chart_index or {})
     F = W_CHART_MATCH * chart_s
 
-    # G — Fits the "are ya winning son?" moment
+    # G — Mood: neutral for every mood with a clip; devotional scores 0
     mood = _song_mood(track, chart_hit)
     G = W_MOOD_FIT * _MOOD_SCORE[mood]
 
@@ -1079,7 +1137,7 @@ def select_music(state: ReelState) -> ReelState:
 
     print(f"\nMeta returned {len(all_tracks)} candidate(s).")
     for i, t in enumerate(all_tracks[:60], start=1):
-        print(f"  {i:02d}. {t.get('title') or t.get('name')} — {t.get('artist') or ''}")
+        print(f"  {i:02d}. {t.get('title') or t.get('name')} — {_artist(t)}")
 
     # ── Step B: Record candidate ranks for this run ───────────
     # (used for rank-movement and persistence scoring in future runs)
@@ -1099,7 +1157,7 @@ def select_music(state: ReelState) -> ReelState:
     for track in all_tracks:
         key    = _song_key(track)
         title  = track.get("title") or track.get("name") or ""
-        artist = track.get("artist") or ""
+        artist = _artist(track)
 
         # Check cache first
         cached = history.get("lastfm_cache", {}).get(key)
@@ -1142,7 +1200,7 @@ def select_music(state: ReelState) -> ReelState:
         lastfm = track.get("_lastfm")
         key    = _song_key(track, lastfm)
         title  = track.get("title") or track.get("name") or "Unknown"
-        artist = track.get("artist") or ""
+        artist = _artist(track)
 
         # Check all three key tiers (meta id, MusicBrainz id, title|artist)
         rejected = bool(_all_song_keys(track, lastfm) & used_keys)
@@ -1222,7 +1280,7 @@ def select_music(state: ReelState) -> ReelState:
         expl_str = "deterministic (top scorer)"
 
     sel_title  = selected.get("title") or selected.get("name") or "Unknown"
-    sel_artist = selected.get("artist") or ""
+    sel_artist = _artist(selected)
     sel_s      = selected["_scores"]
     sel_key    = selected["_key"]
     sel_rank   = selected["_rank_1based"]
@@ -1295,8 +1353,77 @@ def select_music(state: ReelState) -> ReelState:
         "selection_reason":   reason,
         "selection_mode":     "auto",
         "last_candidate_keys": [c["key"] for c in current_run_candidates],
+        "song_mood":          sel_s["mood"],
     }
 
+
+
+# ============================================================
+# NODE 1B
+# CHOOSE CLIP FOR THE SONG'S MOOD
+# ============================================================
+
+def load_clips() -> dict:
+    """
+    {"fallback": mood, "clips": [clip, ...]} from CLIPS_MANIFEST. Without a
+    manifest, the single ASSET_VIDEO clip described by the env settings.
+    """
+    if CLIPS_MANIFEST.exists():
+        with open(CLIPS_MANIFEST, encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        "fallback": "sad",
+        "clips": [{
+            "name":            "default",
+            "mood":            "sad",
+            "file":            ASSET_VIDEO,
+            "trim_start":      ASSET_TRIM_START,
+            "music_start":     MUSIC_START_SECONDS,
+            "loop_start":      LOOP_START_SECONDS,
+            "thumb_offset_ms": THUMB_OFFSET_MS,
+            "framing": {
+                "mode":     "split",
+                "split_at": SON_SHOT_START,
+                "slice_x0": SON_CROP_X0,
+                "slice_x1": SON_CROP_X1,
+            },
+        }],
+    }
+
+
+def choose_clip(state: ReelState) -> ReelState:
+    """
+    Pick the clip for the song's mood. Moods without a clip use the
+    fallback mood's clip. With several clips for one mood, the one used
+    least recently wins, so every version gets its turn.
+    """
+    print("\n=== CHOOSE CLIP ===")
+
+    manifest = load_clips()
+    clips    = manifest["clips"]
+    mood     = state.get("song_mood") or "unknown"
+
+    pool = [c for c in clips if c["mood"] == mood]
+    if not pool:
+        fallback = manifest.get("fallback", "sad")
+        pool = [c for c in clips if c["mood"] == fallback] or clips
+        print(f"  No clip for mood '{mood}' — using the '{fallback}' clip.")
+
+    last_used = {
+        r["clip"]: i
+        for i, r in enumerate(load_history().get("reels", []))
+        if r.get("clip")
+    }
+    clip = min(pool, key=lambda c: last_used.get(c["name"], -1))
+
+    print(f"  Song mood: {mood}")
+    print(f"  Clip:      {clip['name']} ({clip['file']})")
+
+    return {
+        **state,
+        "clip":        clip,
+        "asset_video": clip["file"],
+    }
 
 
 # ============================================================
@@ -1307,13 +1434,35 @@ def select_music(state: ReelState) -> ReelState:
 # Captions are written to earn saves, shares and comments — the signals
 # Reels ranks on — and to be found by people who follow the trend.
 # Several variants rotate so consecutive posts never share a caption.
-_CAPTION_HOOKS = [
-    "are ya winning, son? 🎧",
-    "dad: are ya winning, son?\nme: 🎧",
-    "he's not winning. he's listening to this 🎧",
-    "are ya winning, son? (he's not) 🎧",
-    "this song at 3am hits different 🎧",
-]
+# Hooks follow the clip on screen, so the happy clips never get a
+# "he's not winning" caption.
+_CAPTION_HOOKS = {
+    "sad": [
+        "are ya winning, son? 🎧",
+        "dad: are ya winning, son?\nme: 🎧",
+        "he's not winning. he's listening to this 🎧",
+        "are ya winning, son? (he's not) 🎧",
+        "this song at 3am hits different 🎧",
+    ],
+    "love": [
+        "are ya winning, son? 💌",
+        "dad: are ya winning, son?\nme, smiling at my phone: 🎧",
+        "he's winning. just not at anything dad cares about 💌",
+        "are ya winning, son? (in love, apparently) 🎧",
+    ],
+    "hype": [
+        "are ya winning, son? 💪",
+        "dad: are ya winning, son?\nme: 😎🎧",
+        "he's winning. loudly 💪",
+        "are ya winning, son? (dad wasn't ready) 😎",
+    ],
+    "party": [
+        "are ya winning, son? 🪩",
+        "dad: are ya winning, son?\nme at 2am: 🪩🎧",
+        "he's winning. the neighbours aren't 🪩",
+        "are ya winning, son? (the whole house can hear it) 🪩",
+    ],
+}
 _CAPTION_CTAS = [
     "save this for your late night playlist 🔖",
     "send this to someone who needs to hear it 💬",
@@ -1347,14 +1496,16 @@ def generate_caption(state: ReelState):
 
     audio_title = state.get("audio_title", "")
     meta        = state.get("audio_metadata") or {}
-    artist      = (meta.get("artist") or "").strip()
-    mood        = _song_mood(meta)
+    artist      = _artist(meta)
+    mood        = state.get("song_mood") or _song_mood(meta)
+    clip_mood   = (state.get("clip") or {}).get("mood", "sad")
 
     recent = [
         r.get("caption_hook")
         for r in load_history().get("reels", [])[-3:]
     ]
-    hooks = [h for h in _CAPTION_HOOKS if h not in recent] or _CAPTION_HOOKS
+    pool  = _CAPTION_HOOKS.get(clip_mood) or _CAPTION_HOOKS["sad"]
+    hooks = [h for h in pool if h not in recent] or pool
     hook  = random.choice(hooks)
     cta   = random.choice(_CAPTION_CTAS)
 
@@ -1397,18 +1548,21 @@ def calculate_video_duration(state: ReelState):
 
     print("\n=== CALCULATE VIDEO DURATION ===")
 
-    asset = state["asset_video"]
+    asset       = state["asset_video"]
+    clip        = state["clip"]
+    trim        = float(clip.get("trim_start", 0))
+    music_start = float(clip["music_start"])
 
-    duration = get_video_duration(asset) - ASSET_TRIM_START
+    duration = get_video_duration(asset) - trim
     if duration <= 1:
         raise RuntimeError(
-            f"ASSET_TRIM_START={ASSET_TRIM_START} leaves only {duration:.2f}s of asset."
+            f"trim_start={trim} leaves only {duration:.2f}s of {asset}."
         )
 
     audio_duration = state["audio_duration"]
 
     # Target: asset intro + catalog audio, capped at reel max.
-    raw_duration = MUSIC_START_SECONDS + audio_duration
+    raw_duration = music_start + audio_duration
 
     # Instagram Reels max = 90 seconds.
     final_duration = min(raw_duration, REEL_MAX_DURATION)
@@ -1418,7 +1572,7 @@ def calculate_video_duration(state: ReelState):
     )
 
     print(
-        f"Music starts:         {MUSIC_START_SECONDS:.3f}s"
+        f"Music starts:         {music_start:.3f}s"
     )
 
     print(
@@ -1433,10 +1587,10 @@ def calculate_video_duration(state: ReelState):
         f"Final video duration: {final_duration:.3f}s  (capped at {REEL_MAX_DURATION}s for Reels)"
     )
 
-    if duration < MUSIC_START_SECONDS:
+    if duration < music_start:
         raise RuntimeError(
             f"Asset is only {duration:.2f}s long, "
-            f"but music starts at {MUSIC_START_SECONDS:.2f}s."
+            f"but music starts at {music_start:.2f}s."
         )
 
     return {
@@ -1457,21 +1611,27 @@ def build_video(state: ReelState):
 
     asset = state["asset_video"]
     output = state["output_video"]
+    clip = state["clip"]
 
     final_duration = state["final_duration"]
-    loop_start = LOOP_START_SECONDS
     asset_duration = state["asset_duration"]
+    trim        = float(clip.get("trim_start", 0))
+    music_start = float(clip["music_start"])
+    loop_start  = float(clip["loop_start"])
+    crossfade   = float(clip.get("loop_crossfade", 0))
+    audio_boost = float(clip.get("audio_boost", ASSET_AUDIO_BOOST))
+    framing     = clip.get("framing") or {"mode": "cover"}
 
     if loop_start >= asset_duration:
         raise RuntimeError(
-            f"LOOP_START_SECONDS={loop_start} is beyond "
+            f"loop_start={loop_start} is beyond "
             f"asset duration={asset_duration}"
         )
 
-    if loop_start < MUSIC_START_SECONDS:
+    if loop_start < music_start:
         raise RuntimeError(
-            f"LOOP_START_SECONDS={loop_start} must be >= "
-            f"MUSIC_START_SECONDS={MUSIC_START_SECONDS}. "
+            f"loop_start={loop_start} must be >= "
+            f"music_start={music_start}. "
             f"The loop segment must start after the music crossover point."
         )
 
@@ -1500,25 +1660,28 @@ def build_video(state: ReelState):
         # Audio is handled separately below, so every file going into the
         # concat has the same single stream.
         #
-        # Two framings:
-        #   0 -> SON_SHOT_START : dad in the doorway. Centre crop that fills
-        #                         the frame (no black bars) frames him well.
-        #   SON_SHOT_START -> end: camera pans over the son, laptop and door —
-        #                         too wide for a 9:16 crop (it cut off his head
-        #                         and the laptop). Show the SON_CROP_X0..X1
-        #                         slice full-width over a blurred, darkened
-        #                         copy of the frame.
+        # Framing comes from the clip's manifest entry:
+        #   "cover": one 9:16 window of the source (center_x / center_y
+        #            place it, zoom > 1 crops tighter), full-bleed.
+        #   "split": the original sad clip.
+        #     0 -> split_at   : dad in the doorway. Centre crop that fills
+        #                       the frame (no black bars) frames him well.
+        #     split_at -> end : camera pans over the son, laptop and door —
+        #                       too wide for a 9:16 crop (it cut off his head
+        #                       and the laptop). Show the slice_x0..x1 slice
+        #                       full-width over a blurred, darkened copy of
+        #                       the frame.
         # --------------------------------------------------------
 
         cover = (
             f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
             f"crop={WIDTH}:{HEIGHT},setsar=1"
         )
-        split_at = SON_SHOT_START
+        split_at = float(framing.get("split_at", 0))
 
-        if 0 < split_at < asset_duration - 0.5:
-            x0 = max(0.0, min(SON_CROP_X0, 1.0))
-            x1 = max(x0 + 0.1, min(SON_CROP_X1, 1.0))
+        if framing.get("mode") == "split" and 0 < split_at < asset_duration - 0.5:
+            x0 = max(0.0, min(float(framing.get("slice_x0", 0.25)), 1.0))
+            x1 = max(x0 + 0.1, min(float(framing.get("slice_x1", 0.80)), 1.0))
             filter_complex = (
                 f"[0:v]split=2[dadsrc][sonsrc];"
                 f"[dadsrc]trim=0:{split_at},setpts=PTS-STARTPTS,{cover}[dad];"
@@ -1531,11 +1694,11 @@ def build_video(state: ReelState):
                 f"[dad][son]concat=n=2:v=1:a=0,fps={FPS}[v]"
             )
         else:
-            filter_complex = f"[0:v]{cover},fps={FPS}[v]"
+            filter_complex = f"[0:v]{_cover_crop(asset, framing)},fps={FPS}[v]"
 
         run([
             "ffmpeg", "-y",
-            "-ss", f"{ASSET_TRIM_START:.3f}",
+            "-ss", f"{trim:.3f}",
             "-i", asset,
             "-filter_complex", filter_complex,
             "-map", "[v]",
@@ -1576,7 +1739,8 @@ def build_video(state: ReelState):
                 "ffmpeg", "-y",
                 "-stream_loop", "-1",
                 "-i", str(loop_segment),
-                "-t", f"{remaining + 1.0:.3f}",   # +1 s margin; final -t trims
+                # +1 s margin (and the crossfade overlap); final -t trims
+                "-t", f"{remaining + 1.0 + crossfade:.3f}",
                 "-an",
                 "-r", str(FPS),
                 *intermediate_x264,
@@ -1586,23 +1750,41 @@ def build_video(state: ReelState):
         else:
             parts = [normalized]
 
-        with open(concat_files, "w", encoding="utf-8") as f:
-            for part in parts:
-                f.write(f"file '{part.resolve()}'\n")
+        if len(parts) == 2 and crossfade > 0:
+            # Clips that keep moving to their last frame would jump where
+            # the loop starts, so dissolve from the clip's end into it.
+            fade_at = max(get_video_duration(str(normalized)) - crossfade, 0.0)
+            run([
+                "ffmpeg", "-y",
+                "-i", str(normalized),
+                "-i", str(tail),
+                "-filter_complex",
+                f"[0:v]settb=AVTB[a];[1:v]settb=AVTB[b];"
+                f"[a][b]xfade=transition=fade:duration={crossfade}"
+                f":offset={fade_at:.3f},fps={FPS}[v]",
+                "-map", "[v]",
+                *intermediate_x264,
+                str(concatenated),
+            ])
+        else:
+            with open(concat_files, "w", encoding="utf-8") as f:
+                for part in parts:
+                    f.write(f"file '{part.resolve()}'\n")
 
-        run([
-            "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", str(concat_files),
-            "-c", "copy",
-            str(concatenated),
-        ])
+            run([
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_files),
+                "-c", "copy",
+                str(concatenated),
+            ])
 
         # --------------------------------------------------------
         # Build the embedded audio track:
-        #   0 -> MUSIC_START_SECONDS : original asset audio (boosted)
-        #   MUSIC_START_SECONDS -> end : silence
+        #   0 -> music_start : original asset audio (boosted by the clip's
+        #                      audio_boost, default ASSET_AUDIO_BOOST)
+        #   music_start -> end : silence
         #
         # The catalog song is NOT mixed in locally. Instagram plays it via
         # audio_configuration (create_reel_container); video_volume=100 keeps
@@ -1612,11 +1794,11 @@ def build_video(state: ReelState):
         if _has_audio_stream(asset):
             run([
                 "ffmpeg", "-y",
-                "-ss", f"{ASSET_TRIM_START:.3f}",
+                "-ss", f"{trim:.3f}",
                 "-i", asset,
-                "-t", str(MUSIC_START_SECONDS),
+                "-t", str(music_start),
                 "-vn",
-                "-af", f"volume={ASSET_AUDIO_BOOST},aresample=44100",
+                "-af", f"volume={audio_boost},aresample=44100",
                 "-ac", "2",
                 "-acodec", "aac",
                 "-b:a", "192k",
@@ -1628,13 +1810,13 @@ def build_video(state: ReelState):
                 "ffmpeg", "-y",
                 "-f", "lavfi",
                 "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", str(MUSIC_START_SECONDS),
+                "-t", str(music_start),
                 "-acodec", "aac",
                 "-b:a", "192k",
                 str(asset_audio_seg),
             ])
 
-        music_duration = final_duration - MUSIC_START_SECONDS
+        music_duration = final_duration - music_start
 
         silence_seg = temp_dir / "silence.aac"
         run([
@@ -1855,9 +2037,10 @@ def create_reel_container(state: ReelState):
         ).lower(),
     }
 
+    thumb_ms = int((state.get("clip") or {}).get("thumb_offset_ms", THUMB_OFFSET_MS))
     final_ms = int(float(state.get("final_duration") or 0) * 1000)
-    if THUMB_OFFSET_MS > 0 and (not final_ms or THUMB_OFFSET_MS < final_ms):
-        params["thumb_offset"] = str(THUMB_OFFSET_MS)
+    if thumb_ms > 0 and (not final_ms or thumb_ms < final_ms):
+        params["thumb_offset"] = str(thumb_ms)
 
     # Attach trending audio via audio_configuration.
     # Per Meta Graph API docs, the correct field is audio_configuration
@@ -2082,7 +2265,7 @@ def record_new_reel(state: ReelState) -> ReelState:
         "song_id":          state.get("audio_id", ""),
         "song_key":         key,
         "title":            state.get("audio_title", ""),
-        "artist":           audio_meta.get("artist", ""),
+        "artist":           _artist(audio_meta),
         "duration_s":       state.get("audio_duration", 0.0),
         "published_at":     now,
         "reel_id":          media_id,
@@ -2090,6 +2273,8 @@ def record_new_reel(state: ReelState) -> ReelState:
         "selected_score":   state.get("selected_score"),
         "selection_reason": state.get("selection_reason", ""),
         "caption_hook":     state.get("caption_hook"),
+        "song_mood":        state.get("song_mood"),
+        "clip":             (state.get("clip") or {}).get("name"),
         "meta_rank":        audio_meta.get("_meta_rank"),
         "external_metadata": (
             {k: v for k, v in lastfm.items() if k != "cached_at"}
@@ -2115,6 +2300,7 @@ def record_new_reel(state: ReelState) -> ReelState:
     print(f"  Recorded: reel_id={media_id}")
     print(f"  Mode:     {record['selection_mode']}")
     print(f"  Song:     '{record['title']}' by {record['artist']}")
+    print(f"  Clip:     {record['clip']} (song mood: {record['song_mood']})")
     print(f"  Key:      {key}")
     print(
         f"  24 h snapshot will be taken on the first run "
@@ -2183,7 +2369,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
             )
             metadata = result
             title    = result.get("title") or result.get("name")
-            artist   = result.get("artist")
+            artist   = _artist(result) or None
             dur_ms   = result.get("duration_in_ms") or result.get("duration_ms")
             if dur_ms is not None:
                 duration = float(dur_ms) / 1000.0
@@ -2242,7 +2428,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
         if best_track is None or best_score < 0.5:
             available = "\n    ".join(
                 f"- {t.get('title') or t.get('name') or '(no title)'}"
-                f" by {t.get('artist') or '(unknown)'}"
+                f" by {_artist(t) or '(unknown)'}"
                 for t in all_tracks
             )
             raise RuntimeError(
@@ -2257,7 +2443,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
 
         print(
             f"  MATCHED: '{track.get('title') or track.get('name')}' "
-            f"by {track.get('artist')}  "
+            f"by {_artist(track)}  "
             f"[audio_id={real_id}  score={best_score:.2f}]"
         )
 
@@ -2278,7 +2464,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
             )
 
         title  = track.get("title") or track.get("name")
-        artist = track.get("artist")
+        artist = _artist(track) or None
 
     # ── Common output ────────────────────────────────────────
     final_audio_id = str(track.get("audio_id") or track.get("id") or raw_input)
@@ -2303,6 +2489,7 @@ def resolve_manual_audio(state: ReelState) -> ReelState:
         "selection_reason":    f"manual:{raw_input}",
         "selection_mode":      "manual",
         "last_candidate_keys": [],
+        "song_mood":           _song_mood(track),
     }
 
 
@@ -2333,6 +2520,7 @@ def build_graph():
     graph.add_node("select_music",          select_music)          # AUTO
     graph.add_node("resolve_manual_audio",  resolve_manual_audio)  # MANUAL
     graph.add_node("record_new_reel",       record_new_reel)
+    graph.add_node("choose_clip",           choose_clip)
 
     # ── Shared pipeline nodes (logic unchanged) ──────────────
     graph.add_node("generate_caption",        generate_caption)
@@ -2359,9 +2547,10 @@ def build_graph():
         },
     )
 
-    # ── Convergence: both selection nodes → same pipeline ───
-    graph.add_edge("select_music",         "generate_caption")
-    graph.add_edge("resolve_manual_audio", "generate_caption")
+    # ── Convergence: both selection nodes → clip → same pipeline ─
+    graph.add_edge("select_music",         "choose_clip")
+    graph.add_edge("resolve_manual_audio", "choose_clip")
+    graph.add_edge("choose_clip",          "generate_caption")
 
     # ── Shared pipeline edges (unchanged) ───────────────────
     graph.add_edge("generate_caption",         "calculate_video_duration")
@@ -2392,21 +2581,13 @@ def main():
         "\n=========================================="
     )
 
+    manifest = load_clips()
     print(
-        f"\nAsset: {ASSET_VIDEO}"
+        f"\nClips ({CLIPS_MANIFEST if CLIPS_MANIFEST.exists() else 'ASSET_VIDEO'}):"
     )
-
-    print(f"Trim start: {ASSET_TRIM_START}s")
-
-    print(
-        f"Music start: "
-        f"{MUSIC_START_SECONDS}s"
-    )
-
-    print(
-        f"Loop start: "
-        f"{LOOP_START_SECONDS}s"
-    )
+    for c in manifest["clips"]:
+        print(f"  {c['mood']:>6}  {c['name']:<8}  {c['file']}")
+    print(f"  moods without a clip use: {manifest.get('fallback', 'sad')}")
 
     print(
         f"Publishing: "
