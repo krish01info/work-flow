@@ -76,7 +76,7 @@ Pipeline order:
 
 1. **Meta token renewed 2026-11-06, expires 2027-01-05.** Has `instagram_manage_insights` and
    `instagram_manage_comments`; insights, comments and `/ig_audio` tested OK. The user must copy it from `.env`
-   into the `META_ACCESS_TOKEN` secret (unconfirmed). No Page token yet: `/me/accounts` is empty without
+   into the `META_ACCESS_TOKEN` secret (user said done, 2026-11-06). No Page token yet: `/me/accounts` is empty without
    `business_management`; add it at the next renewal for a token that never expires. Unused secrets to delete:
    `INSTAGRAM_PASSWORD`, `INSTAGRAM_SESSION_JSON`, `INSTAGRAM_USERNAME`, `INSTAGRAM_ACCESS_TOKEN`,
    `INSTAGRAM_ACCOUNT_ID`. `LASTFM_API_KEY` is not set.
