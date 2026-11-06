@@ -73,6 +73,10 @@ Pipeline order:
 0. **Status on 2026-11-06:** the last 20 reels got 2 likes and 0 comments in total; 151 posts, 21 followers;
    name still "THE MAN", bio still "songs". Likely flagged as unoriginal. If Account status shows
    "can't be recommended", a fresh account is the realistic route.
+   **Update:** Account status is all green. Real insights (now working) for 40 reels: about 1 reel every 2–3 days
+   reaches 30–150 people, the rest reach 2 (not shown to anyone). It doesn't track song rank, hook or post time.
+   Since the mood clips, the love clip was pushed 2 of 3 times, the sad clip 2 of 13. Average watch ~5 s of 15 s.
+   Reading: Instagram throttles near-duplicate reels; new clips are the biggest lever.
 
 1. **Meta token renewed 2026-11-06, expires 2027-01-05.** Has `instagram_manage_insights` and
    `instagram_manage_comments`; insights, comments and `/ig_audio` tested OK. The user must copy it from `.env`
