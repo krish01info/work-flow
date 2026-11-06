@@ -74,14 +74,12 @@ Pipeline order:
    name still "THE MAN", bio still "songs". Likely flagged as unoriginal. If Account status shows
    "can't be recommended", a fresh account is the realistic route.
 
-1. **Meta token expires 2026-11-07.** The token in the local `.env` expires then; if the
-   `META_ACCESS_TOKEN` GitHub secret is the same token, publishing stops that day. It also lacks
-   `instagram_manage_insights`, so every insights call fails with `(#10) Application does not have
-   permission`, no reel has a 24 h snapshot, and scoring signal D is a constant. Fix: generate a new
-   long-lived token with `instagram_manage_insights` and `instagram_manage_comments` (the second is
-   for the first-comment idea below) plus the current scopes (`pages_show_list`, `instagram_basic`,
-   `instagram_content_publish`, `pages_read_engagement`) and update the secret.
-   Check it with `GET /debug_token`.
+1. **Meta token renewed 2026-11-06, expires 2027-01-05.** Has `instagram_manage_insights` and
+   `instagram_manage_comments`; insights, comments and `/ig_audio` tested OK. The user must copy it from `.env`
+   into the `META_ACCESS_TOKEN` secret (unconfirmed). No Page token yet: `/me/accounts` is empty without
+   `business_management`; add it at the next renewal for a token that never expires. Unused secrets to delete:
+   `INSTAGRAM_PASSWORD`, `INSTAGRAM_SESSION_JSON`, `INSTAGRAM_USERNAME`, `INSTAGRAM_ACCESS_TOKEN`,
+   `INSTAGRAM_ACCOUNT_ID`. `LASTFM_API_KEY` is not set.
 2. **Chill clip** (mood `unknown`) isn't made yet, and each mood has only one version. Add versions B to D
    so the same clip doesn't come back every few posts.
 3. **Low reach.** The diagnosis from 2026-10-26: about 133 reels with near-identical visuals (the same
