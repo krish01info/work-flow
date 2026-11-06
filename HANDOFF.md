@@ -109,13 +109,14 @@ Pipeline order:
 - **Searchable profile (the user changes this in the app; the API can't edit the profile).**
   On 2026-10-27 the name was "THE MAN" and the bio just "songs", neither of which matches anything
   people search for. Instagram search matches the username, the name field and the bio. Recommended:
-  - Name: `Trending Songs | Are Ya Winning Son` (the name can only be changed twice in 14 days)
-  - Bio (135 of 150 characters):
+  - Updated 2026-11-06 after researching Instagram search (name field weighs most, bio is indexed per Mosseri):
+  - Name: `Trending Songs | Hindi & Punjabi` (the name can only be changed twice in 14 days)
+  - Bio:
     ```
-    🎧 a trending song every day
-    sad songs • love songs • party songs
+    🎧 1 trending song every day
+    💔 sad songs • ❤️ love songs • 🔥 party songs
     Hindi • Punjabi • English
-    dad: are ya winning, son? 👇 request a song
+    👇 comment a song, I'll post it
     ```
   - Optional, the user's call: the username `@themansquotes` (left over from the quotes era) is the
     strongest search match but says nothing about songs. Changing it breaks old links and doesn't
