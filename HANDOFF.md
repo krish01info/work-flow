@@ -11,7 +11,7 @@ than several changes (timings, mood clips); trust the code, `assets/clips/clips.
 - **Script:** `reelbuilder.py` (LangGraph). Nothing else in the repo is used by the workflow;
   `asset_video_workflow.py`, `instagram_workflow.py`, `instagrapi_workflow.py`, `youtube_workflow.py`
   and `main.py` are older experiments.
-- **Account:** Instagram `@themansquotes`, 21 followers and 133 posts on 2026-10-26.
+- **Account:** Instagram `@trendingsong.daily` (was `@themansquotes` until 2026-11-06; name field "listener", new bio applied), 21 followers, 151 posts on 2026-11-06.
 - **Repo:** https://github.com/krish01info/work-flow (public). Runs:
   https://github.com/krish01info/work-flow/actions/workflows/generate-video.yml
 
