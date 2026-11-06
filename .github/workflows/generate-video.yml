@@ -3,10 +3,11 @@ name: Generate & Publish Instagram Reel
 
 on:
   schedule:
-    # 2 uploads/day: 12:47 and 19:47 IST (cron is UTC). Six near-identical
-    # reels a day read as spam and drag down the whole account's reach.
+    # 1 upload/day at 18:47 IST (cron is UTC), so it lands in the 7–10 PM
+    # IST evening peak even when GitHub starts it late. More posts of
+    # near-identical reels read as spam and drag down the account's reach.
     # Off-the-hour minutes because GitHub delays jobs queued at :00.
-    - cron: '17 7,14 * * *'
+    - cron: '17 13 * * *'
   workflow_dispatch:
     inputs:
       mode:

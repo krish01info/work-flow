@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TypedDict, Optional, Dict, Any
+from typing import TypedDict, Optional, Dict, Any, List
 
 import requests
 from dotenv import load_dotenv
@@ -68,6 +68,8 @@ AUDIO_TYPE = "music"
 AUDIO_LIMIT = int(os.getenv("AUDIO_LIMIT", "50"))
 # Follow Meta's paging cursor for a bigger candidate pool (if it pages).
 AUDIO_MAX_PAGES = int(os.getenv("AUDIO_MAX_PAGES", "4"))
+# Longer tracks are kathas, jukeboxes and mixes, not songs people reel to.
+MAX_SONG_SECONDS = int(os.getenv("MAX_SONG_SECONDS", "480"))
 
 # Publishing
 SHARE_TO_FEED = os.getenv(
@@ -253,6 +255,7 @@ class ReelState(TypedDict, total=False):
 
     song_mood:           str     # sad | love | hype | party | devotional | unknown
     clip:                Dict[str, Any]   # manifest entry chosen by choose_clip
+    first_comment:       str     # question commented after publish
 
 
 # ============================================================
@@ -761,6 +764,18 @@ def _title_key(title: str) -> str:
     return _normalise(t)
 
 
+def _is_library_track(track: dict) -> bool:
+    """Meta Sound Collection track (royalty-free, downloadable) rather than
+    a licensed song: it has a download_url and no in-app preview link."""
+    return bool(track.get("download_url")) and not track.get("on_platform_audio_preview_link")
+
+
+def _artist_names(artist: str) -> set:
+    """{'anirudh ravichander', 'deepthi suresh'} from a joined artist string."""
+    parts = re.split(r",|&| x | and | feat\.?| ft\.?", artist or "", flags=re.I)
+    return {_normalise(p) for p in parts if _normalise(p)}
+
+
 def _fetch_apple_chart(country: str, size: int) -> list:
     url = (
         "https://rss.marketingtools.apple.com/api/v2/"
@@ -771,10 +786,11 @@ def _fetch_apple_chart(country: str, size: int) -> list:
     return resp.json().get("feed", {}).get("results", []) or []
 
 
-def load_chart_index(history: dict) -> Dict[str, Dict[str, Any]]:
+def load_chart_index(history: dict) -> Dict[str, List[Dict[str, Any]]]:
     """
-    {title_key: {"rank": best 1-based rank, "country": cc, "artist": str,
-                 "genres": [..]}} from Apple Music charts.
+    {title_key: [{"rank": 1-based rank, "country": cc, "artist": str,
+                  "genres": [..]}, ...]} from Apple Music charts, best rank
+    first. A title can hold several songs (different artists, same name).
     Cached in music_history.json for 12 h. Never raises.
     """
     cache = history.setdefault("chart_cache", {})
@@ -817,14 +833,17 @@ def load_chart_index(history: dict) -> Dict[str, Dict[str, Any]]:
 
         for rank, song in enumerate(songs, start=1):
             key = _title_key(song.get("name", ""))
-            if key and (key not in index or rank < index[key]["rank"]):
-                index[key] = {
+            if key:
+                index.setdefault(key, []).append({
                     "rank":    rank,
                     "country": cc,
                     "artist":  song.get("artist", ""),
                     "genres":  song.get("genres") or [],
                     "size":    max(len(songs), 1),
-                }
+                })
+
+    for hits in index.values():
+        hits.sort(key=lambda h: h["rank"])
 
     print(
         f"  Chart index: {len(index)} songs from "
@@ -834,9 +853,17 @@ def load_chart_index(history: dict) -> Dict[str, Dict[str, Any]]:
 
 
 def _chart_score(track: dict, chart_index: dict) -> tuple:
-    """(0–1 score, match dict or None). #1 on a chart → 1.0, last → ~0.3."""
-    key = _title_key(track.get("title") or track.get("name") or "")
-    hit = chart_index.get(key) if key else None
+    """(0–1 score, match dict or None). #1 on a chart → 1.0, last → ~0.3.
+    Title and artist must both match; instrumentals and covers never do."""
+    title = track.get("title") or track.get("name") or ""
+    if re.search(r"instrumental|karaoke|cover|reels sound", title, re.I):
+        return 0.0, None
+    key    = _title_key(title)
+    names  = _artist_names(_artist(track))
+    hit    = next(
+        (h for h in (chart_index.get(key) or []) if names & _artist_names(h["artist"])),
+        None,
+    ) if key else None
     if not hit:
         return 0.0, None
     return 1.0 - 0.7 * (hit["rank"] - 1) / max(hit["size"] - 1, 1), hit
@@ -868,7 +895,10 @@ _MOOD_TAGS = {
     },
 }
 _MOOD_WORDS = {
-    "devotional": {"bhajan", "aarti", "chalisa", "mantra", "bhakti", "stuti", "vandana"},
+    "devotional": {
+        "bhajan", "aarti", "chalisa", "mantra", "bhakti", "stuti", "vandana",
+        "katha", "chhath", "chhathi", "maiya", "laxmi", "lakshmi",
+    },
     "sad": {
         # English
         "sad", "cry", "crying", "tears", "alone", "lonely", "miss", "goodbye",
@@ -877,7 +907,7 @@ _MOOD_WORDS = {
         # Hindi / Urdu / Punjabi (romanised)
         "tanha", "tanhai", "judaai", "judai", "bewafa", "yaad", "yaadein",
         "dard", "aansu", "rona", "tadap", "bichad", "bichhad", "alvida",
-        "khamoshi", "adhura", "adhoore", "toota", "tuta", "barbaad", "gham",
+        "khamoshi", "adhura", "adhoore", "toota", "tuta", "toot", "barbaad", "gham",
         "akela", "door", "dooriyan", "kho", "bekhayali", "kabira", "channa",
     },
     "love": {
@@ -1219,6 +1249,27 @@ def select_music(state: ReelState) -> ReelState:
         )
 
     print(f"  {len(fresh)} candidate(s) remain after exclusions.")
+
+    # ── Step D2: Real songs only ──────────────────────────────
+    # Meta's list starts with licensed songs (preview link, no download)
+    # and pads the rest with its royalty-free Sound Collection, which
+    # nobody searches for. Library tracks are a last resort.
+    print("\n--- Real-song Filter ---")
+    real = []
+    for track in fresh:
+        title  = track.get("title") or track.get("name") or "Unknown"
+        dur_ms = track.get("duration_in_ms") or track.get("duration_ms") or 0
+        if _is_library_track(track):
+            continue
+        if dur_ms and dur_ms / 1000 > MAX_SONG_SECONDS:
+            print(f"  SKIPPED (too long, {dur_ms / 60000:.0f} min): '{title}'")
+            continue
+        real.append(track)
+    print(f"  {len(real)} real song(s), {len(fresh) - len(real)} library/long track(s) dropped.")
+    if real:
+        fresh = real
+    else:
+        print("  [WARNING] No real songs left — falling back to library tracks.")
 
     # ── Step E: Score each remaining candidate ────────────────
     print("\n--- Chart / Mood Fit ---")
@@ -2211,6 +2262,45 @@ def publish_reel(state: ReelState):
 
 
 # ============================================================
+# NODE — FIRST COMMENT
+# (after publish: a question that invites viewers to reply)
+# ============================================================
+
+FIRST_COMMENTS = [
+    "rate this song 1–10 👇",
+    "be honest… are YOU winning? 👇",
+    "who are you sending this to? 👀",
+    "song of the day or skip? 👇",
+    "drop a song for tomorrow's reel 👇",
+    "what were you doing when this came on? 👇",
+]
+
+
+def post_first_comment(state: ReelState) -> ReelState:
+    """
+    Comment a question on the new reel. Needs instagram_manage_comments
+    on the token; without it this logs a warning and the run carries on.
+    """
+    print("\n=== FIRST COMMENT ===")
+
+    media_id = state.get("media_id")
+    if not media_id:
+        print("  No media ID (dry run) — skipping.")
+        return state
+
+    n_reels = len(load_history().get("reels", []))
+    message = FIRST_COMMENTS[n_reels % len(FIRST_COMMENTS)]
+
+    try:
+        result = graph_post(f"/{media_id}/comments", {"message": message})
+        print(f"  Commented: {message!r} (id {result.get('id')})")
+        return {**state, "first_comment": message}
+    except Exception as exc:
+        print(f"  [WARNING] Could not post first comment: {exc}")
+        return state
+
+
+# ============================================================
 # NODE — CLEAN UP DRIVE
 # (after publish: Meta has already fetched the video)
 # ============================================================
@@ -2275,6 +2365,7 @@ def record_new_reel(state: ReelState) -> ReelState:
         "caption_hook":     state.get("caption_hook"),
         "song_mood":        state.get("song_mood"),
         "clip":             (state.get("clip") or {}).get("name"),
+        "first_comment":    state.get("first_comment"),
         "meta_rank":        audio_meta.get("_meta_rank"),
         "external_metadata": (
             {k: v for k, v in lastfm.items() if k != "cached_at"}
@@ -2531,6 +2622,7 @@ def build_graph():
     graph.add_node("create_reel_container",   create_reel_container)
     graph.add_node("wait_for_container",      wait_for_container)
     graph.add_node("publish_reel",            publish_reel)
+    graph.add_node("post_first_comment",      post_first_comment)
     graph.add_node("cleanup_drive",           cleanup_drive)
 
     # ── Entry point ───────────────────────────────────────────
@@ -2560,7 +2652,8 @@ def build_graph():
     graph.add_edge("check_public_video_url",   "create_reel_container")
     graph.add_edge("create_reel_container",    "wait_for_container")
     graph.add_edge("wait_for_container",       "publish_reel")
-    graph.add_edge("publish_reel",             "cleanup_drive")
+    graph.add_edge("publish_reel",             "post_first_comment")
+    graph.add_edge("post_first_comment",       "cleanup_drive")
     graph.add_edge("cleanup_drive",            "record_new_reel")
     graph.add_edge("record_new_reel",          END)
 
